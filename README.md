@@ -16,19 +16,44 @@ A terminal-based pixel art generator built in Rust. Generate 64x64 pixel art fro
 
 ## Installation
 
-### From Source
+### npm (Easiest)
+
+```bash
+npm install -g bitart-generator
+```
+
+### Homebrew (macOS/Linux)
+
+```bash
+brew tap ezani92/bitart
+brew install bitart
+```
+
+### Cargo (From Source)
 
 Requires [Rust](https://rustup.rs/) 1.70+:
 
 ```bash
-git clone https://github.com/ezani92/bitart-generator.git
-cd bitart-generator
-cargo install --path .
+cargo install bitart-generator
 ```
 
 ### From Releases
 
-Download the latest binary from [Releases](https://github.com/ezani92/bitart-generator/releases) and place it in your PATH.
+Download the latest binary from [Releases](https://github.com/ezani92/bitart-generator/releases):
+
+```bash
+# macOS (Apple Silicon)
+curl -L https://github.com/ezani92/bitart-generator/releases/latest/download/bitart-v0.1.0-macos-arm64.tar.gz | tar xz
+sudo mv bitart /usr/local/bin/
+
+# macOS (Intel)
+curl -L https://github.com/ezani92/bitart-generator/releases/latest/download/bitart-v0.1.0-macos-x86_64.tar.gz | tar xz
+sudo mv bitart /usr/local/bin/
+
+# Linux (x86_64)
+curl -L https://github.com/ezani92/bitart-generator/releases/latest/download/bitart-v0.1.0-linux-x86_64.tar.gz | tar xz
+sudo mv bitart /usr/local/bin/
+```
 
 ## Usage
 
