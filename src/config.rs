@@ -38,7 +38,9 @@ impl Config {
         vec![
             ("dall-e-2", "DALL-E 2", "$0.02/image (cheapest)"),
             ("dall-e-3", "DALL-E 3", "$0.04/image"),
-            ("gpt-image-1", "GPT Image 1", "$0.04/image (best quality)"),
+            ("gpt-image-1-mini", "GPT Image Mini", "$0.02/image (fast)"),
+            ("gpt-image-1", "GPT Image 1", "$0.04/image"),
+            ("gpt-image-1.5", "GPT Image 1.5", "$0.04/image (best quality)"),
         ]
     }
 }

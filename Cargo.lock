@@ -133,7 +133,7 @@ checksum = "1e4b40c7323adcfc0a41c4b88143ed58346ff65a288fc144329c5c45e05d70c6"
 
 [[package]]
 name = "bitart-generator"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "base64",
  "crossterm",
