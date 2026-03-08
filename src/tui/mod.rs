@@ -14,6 +14,29 @@ use std::time::{Duration, Instant};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+const QUOTES: &[&str] = &[
+    "Every pixel tells a story.",
+    "Creativity is intelligence having fun. — Albert Einstein",
+    "Art is not what you see, but what you make others see. — Edgar Degas",
+    "The only way to do great work is to love what you do. — Steve Jobs",
+    "Simplicity is the ultimate sophistication. — Leonardo da Vinci",
+    "Imagination is the beginning of creation. — George Bernard Shaw",
+    "A picture is worth a thousand pixels.",
+    "The best time to create was yesterday. The next best time is now.",
+    "Art enables us to find ourselves and lose ourselves at the same time. — Thomas Merton",
+    "Every artist was first an amateur. — Ralph Waldo Emerson",
+    "Life is short. Make every pixel count.",
+    "Color is a power which directly influences the soul. — Wassily Kandinsky",
+    "To create is to live twice. — Albert Camus",
+    "The earth has music for those who listen. — Shakespeare",
+    "In the middle of difficulty lies opportunity. — Albert Einstein",
+    "Stay hungry, stay foolish. — Steve Jobs",
+    "The purpose of art is washing the dust of daily life off our souls. — Pablo Picasso",
+    "Dream big, start small, act now.",
+    "Everything you can imagine is real. — Pablo Picasso",
+    "Be yourself; everyone else is already taken. — Oscar Wilde",
+];
+
 const TITLE_ART: &str = "
 ░██        ░██   ░██                           ░██
 ░██              ░██                           ░██
@@ -682,21 +705,32 @@ fn draw_main(frame: &mut Frame, app: &App) {
         Screen::Main(AppState::Generating) => {
             let spinners = ['|', '/', '-', '\\'];
             let spinner = spinners[app.spinner_frame % spinners.len()];
-            let text = if app.export_mode == ExportMode::Gif {
+            let gen_text = if app.export_mode == ExportMode::Gif {
                 format!("{} Generating 3 frames for GIF...", spinner)
             } else {
                 format!("{} Generating pixel art...", spinner)
             };
-            let p = Paragraph::new(text)
-                .style(Style::default().fg(Color::Yellow))
-                .alignment(ratatui::layout::Alignment::Center);
+            let quote_index = (app.spinner_frame / 60) % QUOTES.len();
+            let quote = QUOTES[quote_index];
+
             let vert = Layout::vertical([
-                Constraint::Percentage(45),
+                Constraint::Percentage(40),
                 Constraint::Length(1),
-                Constraint::Percentage(45),
+                Constraint::Length(2),
+                Constraint::Length(1),
+                Constraint::Percentage(40),
             ])
             .split(inner);
+
+            let p = Paragraph::new(gen_text)
+                .style(Style::default().fg(Color::Yellow))
+                .alignment(ratatui::layout::Alignment::Center);
             frame.render_widget(p, vert[1]);
+
+            let q = Paragraph::new(format!("\"{}\"", quote))
+                .style(Style::default().fg(Color::DarkGray))
+                .alignment(ratatui::layout::Alignment::Center);
+            frame.render_widget(q, vert[3]);
         }
         Screen::Main(AppState::Ready) => {
             if let Some(ref canvas) = app.canvas {
