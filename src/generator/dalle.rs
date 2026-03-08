@@ -203,6 +203,131 @@ pub fn generate(prompt: &str, api_key: &str, model: &str) -> Result<GenerationRe
 }
 
 
+/// A single tile produced by chained generation.
+pub struct ChainTile {
+    pub name: String,
+    pub canvas: Canvas,
+}
+
+/// Call OpenAI chat completions API to decompose a prompt into tile names.
+fn decompose_prompt(prompt: &str, api_key: &str) -> Result<Vec<String>, String> {
+    let system_msg = "You are a game asset planner. Given a description of a game element, \
+        return a JSON array of tile/asset names needed to build it. \
+        Each name should be short and descriptive (e.g. \"base wall\", \"corner left\", \"top edge\"). \
+        Return ONLY a JSON array of strings, nothing else. \
+        Keep it practical: 3-6 tiles maximum.";
+
+    let json = serde_json::json!({
+        "model": "gpt-4o-mini",
+        "messages": [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.3,
+    });
+
+    let response = ureq::post("https://api.openai.com/v1/chat/completions")
+        .set("Authorization", &format!("Bearer {}", api_key))
+        .set("Content-Type", "application/json")
+        .send_json(json)
+        .map_err(|e| format!("Chat API request failed: {}", e))?;
+
+    let body: serde_json::Value = response
+        .into_json()
+        .map_err(|e| format!("Failed to parse chat response: {}", e))?;
+
+    if let Some(err) = body["error"]["message"].as_str() {
+        return Err(format!("Chat API error: {}", err));
+    }
+
+    let content = body["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or_else(|| "No content in chat response".to_string())?;
+
+    // Parse JSON array from the response (handle potential markdown wrapping)
+    let trimmed = content.trim();
+    let json_str = if trimmed.starts_with("```") {
+        // Strip markdown code fences
+        trimmed
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim()
+    } else {
+        trimmed
+    };
+
+    let tiles: Vec<String> = serde_json::from_str(json_str)
+        .map_err(|e| format!("Failed to parse tile list: {} (raw: {})", e, content))?;
+
+    if tiles.is_empty() {
+        return Err("No tiles returned by the model".to_string());
+    }
+
+    Ok(tiles)
+}
+
+/// Generate a set of chained tile assets from a single prompt.
+/// 1. Calls text API to decompose prompt into tile names.
+/// 2. Generates base tile with image API.
+/// 3. Generates remaining tiles with edits API using base as reference.
+pub fn generate_chain(prompt: &str, api_key: &str, model: &str) -> Result<Vec<ChainTile>, String> {
+    // Step 1: Decompose prompt into tile names
+    let tile_names = decompose_prompt(prompt, api_key)?;
+
+    // Step 2: Generate the base tile
+    let base_prompt = format!(
+        "Pixel art, 8-bit retro style, clear shapes with black outlines, vibrant colors, \
+         game asset tile, plain white background, centered: {} - {}",
+        prompt, tile_names[0]
+    );
+
+    let base_img = call_api(&base_prompt, api_key, model, single_size(model))?;
+    let base_png = image_to_png_bytes(&base_img)?;
+    let base_canvas = image_to_canvas(&base_img);
+
+    let mut tiles = vec![ChainTile {
+        name: tile_names[0].clone(),
+        canvas: base_canvas,
+    }];
+
+    // Step 3: Generate remaining tiles using edits API with base as reference
+    for tile_name in &tile_names[1..] {
+        let tile_prompt = format!(
+            "This is a reference pixel art tile for: {}. \
+             Now create a new tile for: \"{}\". \
+             It MUST match the exact same pixel art style, color palette, pixel density, \
+             and outline thickness as the reference. \
+             Use a plain white background. Keep the tile centered.",
+            prompt, tile_name
+        );
+
+        if is_gpt_image(model) {
+            let img = call_edits_api(&tile_prompt, api_key, model, &[base_png.clone()])?;
+            let canvas = image_to_canvas(&img);
+            tiles.push(ChainTile {
+                name: tile_name.clone(),
+                canvas,
+            });
+        } else {
+            // Fallback for non-GPT models: generate independently with style hint
+            let fallback_prompt = format!(
+                "Pixel art, 8-bit retro style, clear shapes with black outlines, vibrant colors, \
+                 game asset tile, plain white background, centered: {} - {}",
+                prompt, tile_name
+            );
+            let img = call_api(&fallback_prompt, api_key, model, single_size(model))?;
+            let canvas = image_to_canvas(&img);
+            tiles.push(ChainTile {
+                name: tile_name.clone(),
+                canvas,
+            });
+        }
+    }
+
+    Ok(tiles)
+}
+
 /// Generate 3 animation frames using iterative edits API.
 /// Call 1: generate base frame. Call 2: edit with frame 1 as reference. Call 3: edit with frames 1+2.
 pub fn generate_spritesheet(prompt: &str, api_key: &str, model: &str) -> Result<Vec<Canvas>, String> {

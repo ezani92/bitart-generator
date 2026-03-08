@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::exporter;
-use crate::generator::{self, Canvas, FramesResult, GenerationResult};
+use crate::generator::{self, Canvas, ChainResult, FramesResult, GenerationResult};
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     layout::{Constraint, Layout, Position},
@@ -51,6 +51,7 @@ const TITLE_ART: &str = "
 pub enum ExportMode {
     Png,
     Gif,
+    ChainPng,
 }
 
 impl ExportMode {
@@ -58,13 +59,15 @@ impl ExportMode {
         match self {
             ExportMode::Png => "PNG",
             ExportMode::Gif => "GIF",
+            ExportMode::ChainPng => "CHAIN",
         }
     }
 
     fn toggle(&self) -> Self {
         match self {
             ExportMode::Png => ExportMode::Gif,
-            ExportMode::Gif => ExportMode::Png,
+            ExportMode::Gif => ExportMode::ChainPng,
+            ExportMode::ChainPng => ExportMode::Png,
         }
     }
 }
@@ -111,6 +114,9 @@ pub struct App {
     prompt: String,
     receiver: Option<mpsc::Receiver<Result<GenerationResult, String>>>,
     frames_receiver: Option<mpsc::Receiver<Result<FramesResult, String>>>,
+    chain_receiver: Option<mpsc::Receiver<Result<ChainResult, String>>>,
+    chain_tiles: Option<Vec<(String, Canvas)>>,
+    chain_tile_index: usize,
     generation_start: Option<Instant>,
     spinner_frame: usize,
     gif_frame_index: usize,
@@ -149,6 +155,9 @@ impl App {
             prompt: String::new(),
             receiver: None,
             frames_receiver: None,
+            chain_receiver: None,
+            chain_tiles: None,
+            chain_tile_index: 0,
             generation_start: None,
             spinner_frame: 0,
             gif_frame_index: 0,
@@ -196,6 +205,14 @@ impl App {
                         config.model.clone(),
                     ));
                 }
+                ExportMode::ChainPng => {
+                    self.status_message = format!("Analyzing & generating tiles: {}...", self.prompt);
+                    self.chain_receiver = Some(generator::generate_chain_async(
+                        self.prompt.clone(),
+                        config.api_key.clone(),
+                        config.model.clone(),
+                    ));
+                }
             }
         }
     }
@@ -226,38 +243,91 @@ impl App {
                         config.model.clone(),
                     ));
                 }
+                ExportMode::ChainPng => {
+                    self.status_message = format!("Regenerating tiles: {}...", self.prompt);
+                    self.chain_receiver = Some(generator::generate_chain_async(
+                        self.prompt.clone(),
+                        config.api_key.clone(),
+                        config.model.clone(),
+                    ));
+                }
             }
         }
     }
 
     fn save(&mut self) {
-        let path = if let Some(ref config) = self.config {
-            match self.export_mode {
-                ExportMode::Png => config.output_path("png"),
-                ExportMode::Gif => config.output_path("gif"),
-            }
-        } else {
-            match self.export_mode {
-                ExportMode::Png => "output.png".to_string(),
-                ExportMode::Gif => "output.gif".to_string(),
-            }
-        };
-
         match self.export_mode {
-            ExportMode::Png => {
-                if let Some(ref canvas) = self.canvas {
-                    match exporter::save_png(canvas, &path) {
-                        Ok(()) => self.status_message = format!("Saved to {}!", path),
+            ExportMode::ChainPng => {
+                if let Some(ref tiles) = self.chain_tiles {
+                    let base_dir = if let Some(ref config) = self.config {
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        let folder = format!("bitart_chain_{}", timestamp);
+                        match &config.output_dir {
+                            Some(dir) => {
+                                std::path::Path::new(dir)
+                                    .join(&folder)
+                                    .to_string_lossy()
+                                    .to_string()
+                            }
+                            None => folder,
+                        }
+                    } else {
+                        "chain_output".to_string()
+                    };
+
+                    let tile_refs: Vec<(String, &Canvas)> = tiles
+                        .iter()
+                        .map(|(name, canvas)| (name.clone(), canvas))
+                        .collect();
+
+                    match exporter::save_chain_pngs(&tile_refs, &base_dir) {
+                        Ok(paths) => {
+                            self.status_message = format!(
+                                "Saved {} tiles to {}!",
+                                paths.len(),
+                                base_dir
+                            );
+                        }
                         Err(e) => self.status_message = format!("Save failed: {}", e),
                     }
                 }
             }
-            ExportMode::Gif => {
-                if let Some(ref frames) = self.frames {
-                    match exporter::save_gif(frames, &path) {
-                        Ok(()) => self.status_message = format!("Saved to {}!", path),
-                        Err(e) => self.status_message = format!("Save failed: {}", e),
+            _ => {
+                let path = if let Some(ref config) = self.config {
+                    match self.export_mode {
+                        ExportMode::Png => config.output_path("png"),
+                        ExportMode::Gif => config.output_path("gif"),
+                        ExportMode::ChainPng => unreachable!(),
                     }
+                } else {
+                    match self.export_mode {
+                        ExportMode::Png => "output.png".to_string(),
+                        ExportMode::Gif => "output.gif".to_string(),
+                        ExportMode::ChainPng => unreachable!(),
+                    }
+                };
+
+                match self.export_mode {
+                    ExportMode::Png => {
+                        if let Some(ref canvas) = self.canvas {
+                            match exporter::save_png(canvas, &path) {
+                                Ok(()) => self.status_message = format!("Saved to {}!", path),
+                                Err(e) => self.status_message = format!("Save failed: {}", e),
+                            }
+                        }
+                    }
+                    ExportMode::Gif => {
+                        if let Some(ref frames) = self.frames {
+                            match exporter::save_gif(frames, &path) {
+                                Ok(()) => self.status_message = format!("Saved to {}!", path),
+                                Err(e) => self.status_message = format!("Save failed: {}", e),
+                            }
+                        }
+                    }
+                    ExportMode::ChainPng => unreachable!(),
                 }
             }
         }
@@ -287,6 +357,17 @@ impl App {
 
     fn ready_status(&self) -> String {
         let model = self.model_name.as_deref().unwrap_or("unknown");
+        if self.export_mode == ExportMode::ChainPng {
+            if let Some(ref tiles) = self.chain_tiles {
+                let total = tiles.len();
+                let current = self.chain_tile_index + 1;
+                let tile_name = &tiles[self.chain_tile_index].0;
+                return format!(
+                    "\"{}\" | Tile {}/{}: {} | {} | Left/Right: browse | Ctrl+[n]ew Ctrl+[s]ave Ctrl+[r]egenerate Ctrl+[c]onfig Ctrl+[q]uit",
+                    self.prompt, current, total, tile_name, model
+                );
+            }
+        }
         let ext = if self.export_mode == ExportMode::Gif { "GIF 3fps" } else { "PNG" };
         let res = if let Some(ref c) = self.canvas {
             let h = c.len();
@@ -331,6 +412,47 @@ impl App {
                     self.generation_start = None;
                     self.status_message = "Generation failed unexpectedly".into();
                     self.receiver = None;
+                }
+            }
+        }
+
+        // Check chain mode
+        if let Some(ref rx) = self.chain_receiver {
+            match rx.try_recv() {
+                Ok(result) => {
+                    match result {
+                        Ok(chain_result) => {
+                            self.model_name = Some(chain_result.model.clone());
+                            let tiles: Vec<(String, Canvas)> = chain_result
+                                .tiles
+                                .into_iter()
+                                .map(|t| (t.name, t.canvas))
+                                .collect();
+                            // Show first tile
+                            self.canvas = Some(tiles[0].1.clone());
+                            self.chain_tile_index = 0;
+                            self.chain_tiles = Some(tiles);
+                            self.frames = None;
+                            self.screen = Screen::Main(AppState::Ready);
+                            self.generation_start = None;
+                            self.status_message = self.ready_status();
+                        }
+                        Err(e) => {
+                            self.screen = Screen::Main(AppState::Idle);
+                            self.generation_start = None;
+                            self.status_message = format!("Error: {}", e);
+                        }
+                    }
+                    self.chain_receiver = None;
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    self.spinner_frame += 1;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.screen = Screen::Main(AppState::Idle);
+                    self.generation_start = None;
+                    self.status_message = "Generation failed unexpectedly".into();
+                    self.chain_receiver = None;
                 }
             }
         }
@@ -478,6 +600,32 @@ fn run_app(mut terminal: DefaultTerminal) -> std::io::Result<()> {
                                         app.input.clear();
                                         app.character_index = 0;
                                         app.status_message = "Type a prompt and press Enter to generate | Ctrl+[c]onfig Ctrl+[q]uit".into();
+                                    }
+                                    KeyCode::Left => {
+                                        if app.export_mode == ExportMode::ChainPng {
+                                            if let Some(ref tiles) = app.chain_tiles {
+                                                if app.chain_tile_index > 0 {
+                                                    app.chain_tile_index -= 1;
+                                                } else {
+                                                    app.chain_tile_index = tiles.len() - 1;
+                                                }
+                                                app.canvas = Some(tiles[app.chain_tile_index].1.clone());
+                                                app.status_message = app.ready_status();
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Right => {
+                                        if app.export_mode == ExportMode::ChainPng {
+                                            if let Some(ref tiles) = app.chain_tiles {
+                                                if app.chain_tile_index < tiles.len() - 1 {
+                                                    app.chain_tile_index += 1;
+                                                } else {
+                                                    app.chain_tile_index = 0;
+                                                }
+                                                app.canvas = Some(tiles[app.chain_tile_index].1.clone());
+                                                app.status_message = app.ready_status();
+                                            }
+                                        }
                                     }
                                     KeyCode::Esc => app.should_quit = true,
                                     _ => {}
@@ -865,10 +1013,10 @@ fn draw_main(frame: &mut Frame, app: &App) {
         Screen::Main(AppState::Generating) => {
             let spinners = ['|', '/', '-', '\\'];
             let spinner = spinners[app.spinner_frame % spinners.len()];
-            let gen_text = if app.export_mode == ExportMode::Gif {
-                format!("{} Generating 3 frames for GIF...", spinner)
-            } else {
-                format!("{} Generating pixel art...", spinner)
+            let gen_text = match app.export_mode {
+                ExportMode::Gif => format!("{} Generating 3 frames for GIF...", spinner),
+                ExportMode::ChainPng => format!("{} Analyzing prompt & generating tiles...", spinner),
+                ExportMode::Png => format!("{} Generating pixel art...", spinner),
             };
             let quote_index = (app.spinner_frame / 60) % QUOTES.len();
             let quote = QUOTES[quote_index];
