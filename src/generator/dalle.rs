@@ -53,19 +53,23 @@ fn is_gpt_image(model: &str) -> bool {
 
 /// Call OpenAI image generation API.
 fn call_api(prompt: &str, api_key: &str, model: &str, size: &str) -> Result<image::DynamicImage, String> {
-    let mut json = serde_json::json!({
-        "model": model,
-        "prompt": prompt,
-        "n": 1,
-        "size": size,
-    });
-
-    // GPT Image models use b64_json, DALL-E models use url
-    if is_gpt_image(model) {
-        json["response_format"] = serde_json::json!("b64_json");
+    // GPT Image models don't support response_format parameter
+    let json = if is_gpt_image(model) {
+        serde_json::json!({
+            "model": model,
+            "prompt": prompt,
+            "n": 1,
+            "size": size,
+        })
     } else {
-        json["response_format"] = serde_json::json!("url");
-    }
+        serde_json::json!({
+            "model": model,
+            "prompt": prompt,
+            "n": 1,
+            "size": size,
+            "response_format": "url",
+        })
+    };
 
     let response = ureq::post("https://api.openai.com/v1/images/generations")
         .set("Authorization", &format!("Bearer {}", api_key))
