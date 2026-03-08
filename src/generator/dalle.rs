@@ -1,6 +1,6 @@
-use std::io::Read;
+use std::io::{Cursor, Read};
 
-use super::{Canvas, GenerationResult, CANVAS_SIZE};
+use super::{Canvas, GenerationResult};
 
 /// Download and decode an image from a URL.
 fn download_image(url: &str) -> Result<image::DynamicImage, String> {
@@ -29,16 +29,16 @@ fn decode_base64_image(b64: &str) -> Result<image::DynamicImage, String> {
         .map_err(|e| format!("Failed to decode image: {}", e))
 }
 
-/// Convert an image to a Canvas at CANVAS_SIZE resolution.
+/// Convert an image to a Canvas at its native resolution (no resize).
 fn image_to_canvas(img: &image::DynamicImage) -> Canvas {
-    let size = CANVAS_SIZE;
-    let resized = img.resize_exact(size, size, image::imageops::FilterType::Nearest);
-    let rgb = resized.to_rgb8();
+    let rgb = img.to_rgb8();
+    let w = rgb.width();
+    let h = rgb.height();
 
-    let mut canvas: Canvas = Vec::with_capacity(size as usize);
-    for y in 0..size {
-        let mut row = Vec::with_capacity(size as usize);
-        for x in 0..size {
+    let mut canvas: Canvas = Vec::with_capacity(h as usize);
+    for y in 0..h {
+        let mut row = Vec::with_capacity(w as usize);
+        for x in 0..w {
             let pixel = rgb.get_pixel(x, y);
             row.push([pixel[0], pixel[1], pixel[2]]);
         }
@@ -100,21 +100,90 @@ fn call_api(prompt: &str, api_key: &str, model: &str, size: &str) -> Result<imag
     }
 }
 
+/// Encode a DynamicImage to PNG bytes.
+fn image_to_png_bytes(img: &image::DynamicImage) -> Result<Vec<u8>, String> {
+    let mut buf = Cursor::new(Vec::new());
+    img.write_to(&mut buf, image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+    Ok(buf.into_inner())
+}
+
+/// Call OpenAI image edits API with reference images (multipart form).
+fn call_edits_api(
+    prompt: &str,
+    api_key: &str,
+    model: &str,
+    reference_images: &[Vec<u8>],
+) -> Result<image::DynamicImage, String> {
+    let boundary = "----BitArtBoundary9876543210";
+    let mut body: Vec<u8> = Vec::new();
+
+    // Add each reference image
+    for (i, png_bytes) in reference_images.iter().enumerate() {
+        body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+        body.extend_from_slice(
+            format!(
+                "Content-Disposition: form-data; name=\"image[]\"; filename=\"frame{}.png\"\r\n",
+                i
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(b"Content-Type: image/png\r\n\r\n");
+        body.extend_from_slice(png_bytes);
+        body.extend_from_slice(b"\r\n");
+    }
+
+    // Add prompt
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"prompt\"\r\n\r\n");
+    body.extend_from_slice(prompt.as_bytes());
+    body.extend_from_slice(b"\r\n");
+
+    // Add model
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"model\"\r\n\r\n");
+    body.extend_from_slice(model.as_bytes());
+    body.extend_from_slice(b"\r\n");
+
+    // Add size
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"size\"\r\n\r\n");
+    body.extend_from_slice(b"1024x1024\r\n");
+
+    // Close boundary
+    body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+
+    let response = ureq::post("https://api.openai.com/v1/images/edits")
+        .set("Authorization", &format!("Bearer {}", api_key))
+        .set(
+            "Content-Type",
+            &format!("multipart/form-data; boundary={}", boundary),
+        )
+        .send_bytes(&body)
+        .map_err(|e| format!("Edits API request failed: {}", e))?;
+
+    let resp_body: serde_json::Value = response
+        .into_json()
+        .map_err(|e| format!("Failed to parse edits API response: {}", e))?;
+
+    if let Some(err) = resp_body["error"]["message"].as_str() {
+        return Err(format!("API error: {}", err));
+    }
+
+    // GPT Image models return base64
+    if let Some(b64) = resp_body["data"][0]["b64_json"].as_str() {
+        return decode_base64_image(b64);
+    }
+    // Fallback to URL
+    if let Some(url) = resp_body["data"][0]["url"].as_str() {
+        return download_image(url);
+    }
+    Err("No image data in edits response".to_string())
+}
+
 /// Get the appropriate image size for single image generation.
 fn single_size(_model: &str) -> &'static str {
     "1024x1024"
-}
-
-/// Get the appropriate wide image size for sprite sheet generation.
-fn spritesheet_size(model: &str) -> &'static str {
-    if model == "dall-e-2" {
-        "1024x1024"
-    } else if is_gpt_image(model) {
-        "1536x1024"
-    } else {
-        // dall-e-3
-        "1792x1024"
-    }
 }
 
 /// Generate a single pixel art image.
@@ -133,106 +202,51 @@ pub fn generate(prompt: &str, api_key: &str, model: &str) -> Result<GenerationRe
     })
 }
 
-/// Find the bounding box of non-background pixels in a canvas.
-/// Returns (min_x, min_y, max_x, max_y) or None if empty.
-fn find_bounds(canvas: &Canvas, bg: [u8; 3], tolerance: u8) -> Option<(usize, usize, usize, usize)> {
-    let size = CANVAS_SIZE as usize;
-    let mut min_x = size;
-    let mut min_y = size;
-    let mut max_x = 0usize;
-    let mut max_y = 0usize;
-    let mut found = false;
 
-    for (y, row) in canvas.iter().enumerate() {
-        for (x, pixel) in row.iter().enumerate() {
-            let dr = (pixel[0] as i16 - bg[0] as i16).unsigned_abs() as u8;
-            let dg = (pixel[1] as i16 - bg[1] as i16).unsigned_abs() as u8;
-            let db = (pixel[2] as i16 - bg[2] as i16).unsigned_abs() as u8;
-            if dr > tolerance || dg > tolerance || db > tolerance {
-                found = true;
-                min_x = min_x.min(x);
-                min_y = min_y.min(y);
-                max_x = max_x.max(x);
-                max_y = max_y.max(y);
-            }
-        }
-    }
-
-    if found { Some((min_x, min_y, max_x, max_y)) } else { None }
-}
-
-/// Shift a canvas so its subject center aligns with the target center.
-fn align_canvas(canvas: &Canvas, bg: [u8; 3], target_cx: i32, target_cy: i32, tolerance: u8) -> Canvas {
-    let bounds = match find_bounds(canvas, bg, tolerance) {
-        Some(b) => b,
-        None => return canvas.clone(),
-    };
-
-    let cx = (bounds.0 as i32 + bounds.2 as i32) / 2;
-    let cy = (bounds.1 as i32 + bounds.3 as i32) / 2;
-
-    let dx = target_cx - cx;
-    let dy = target_cy - cy;
-
-    if dx == 0 && dy == 0 {
-        return canvas.clone();
-    }
-
-    let size = CANVAS_SIZE as usize;
-    let isize = CANVAS_SIZE as i32;
-    let mut result = vec![vec![bg; size]; size];
-    for y in 0..isize {
-        for x in 0..isize {
-            let src_x = x - dx;
-            let src_y = y - dy;
-            if src_x >= 0 && src_x < isize && src_y >= 0 && src_y < isize {
-                result[y as usize][x as usize] = canvas[src_y as usize][src_x as usize];
-            }
-        }
-    }
-    result
-}
-
-/// Generate a sprite sheet with 3 animation frames, split, and auto-align.
+/// Generate 3 animation frames using iterative edits API.
+/// Call 1: generate base frame. Call 2: edit with frame 1 as reference. Call 3: edit with frames 1+2.
 pub fn generate_spritesheet(prompt: &str, api_key: &str, model: &str) -> Result<Vec<Canvas>, String> {
-    let full_prompt = format!(
-        "A horizontal pixel art sprite sheet with exactly 3 animation frames placed side by side, separated by thin vertical lines. \
-         8-bit retro style, clear shapes with black outlines, vibrant colors. \
-         Subject: {}. \
-         IMPORTANT: The main body/structure must stay in the EXACT same position and shape across all 3 frames. \
-         Only animate small subtle details (e.g. leaves swaying, eyes blinking, tail wagging, flames flickering, water rippling). \
-         The background, position, size, colors, and overall composition must be IDENTICAL in all 3 frames. \
-         The difference between frames should be very small and subtle, like a 2-3 pixel shift on moving parts only. \
-         White background.",
+    // Frame 1: generate the base image
+    let base_prompt = format!(
+        "Pixel art, 8-bit retro style, clear shapes with black outlines, vibrant colors, \
+         game sprite style, plain white background, centered character: {}",
         prompt
     );
 
-    let img = call_api(&full_prompt, api_key, model, spritesheet_size(model))?;
+    let img1 = call_api(&base_prompt, api_key, model, single_size(model))?;
+    let png1 = image_to_png_bytes(&img1)?;
+    let canvas1 = image_to_canvas(&img1);
 
-    // Split image into 3 equal horizontal panels
-    let width = img.width();
-    let height = img.height();
-    let frame_width = width / 3;
-
-    let mut frames: Vec<Canvas> = Vec::with_capacity(3);
-    for i in 0..3 {
-        let x = i * frame_width;
-        let cropped = img.crop_imm(x, 0, frame_width, height);
-        let canvas = image_to_canvas(&cropped);
-        frames.push(canvas);
+    // For non-GPT Image models, fall back to using the same image 3 times
+    // since the edits API with image[] only works with GPT Image models
+    if !is_gpt_image(model) {
+        return Ok(vec![canvas1.clone(), canvas1.clone(), canvas1]);
     }
 
-    // Auto-align: use frame 1 as reference, align frames 2 & 3 to match
-    let bg = frames[0][0][0]; // top-left pixel as background
-    let tolerance = 30u8;
+    // Frame 2: send frame 1 as reference, ask for subtle animation change
+    let edit_prompt_2 = format!(
+        "This is frame 1 of a pixel art animation of: {}. \
+         Create frame 2 with ONE very subtle change — the character must stay in the EXACT same position, \
+         same size, same outline. Only change a tiny detail that makes sense for the subject \
+         (like a slight arm shift or eye blink). Keep the white background. Keep everything else identical.",
+        prompt
+    );
 
-    if let Some(ref_bounds) = find_bounds(&frames[0], bg, tolerance) {
-        let target_cx = (ref_bounds.0 as i32 + ref_bounds.2 as i32) / 2;
-        let target_cy = (ref_bounds.1 as i32 + ref_bounds.3 as i32) / 2;
+    let img2 = call_edits_api(&edit_prompt_2, api_key, model, &[png1.clone()])?;
+    let png2 = image_to_png_bytes(&img2)?;
+    let canvas2 = image_to_canvas(&img2);
 
-        frames[1] = align_canvas(&frames[1], bg, target_cx, target_cy, tolerance);
-        frames[2] = align_canvas(&frames[2], bg, target_cx, target_cy, tolerance);
-    }
+    // Frame 3: send frames 1 and 2 as reference, ask for third frame
+    let edit_prompt_3 = format!(
+        "These are frames 1 and 2 of a pixel art animation of: {}. \
+         Create frame 3 that completes the animation loop. The character must stay in the EXACT same position. \
+         Make a subtle change that flows from frame 2 back toward frame 1 (like returning to rest position). \
+         Keep the white background. Keep everything else identical.",
+        prompt
+    );
 
-    Ok(frames)
+    let img3 = call_edits_api(&edit_prompt_3, api_key, model, &[png1, png2])?;
+    let canvas3 = image_to_canvas(&img3);
+
+    Ok(vec![canvas1, canvas2, canvas3])
 }

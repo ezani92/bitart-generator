@@ -6,6 +6,8 @@ use std::path::PathBuf;
 pub struct Config {
     pub api_key: String,
     pub model: String,
+    #[serde(default)]
+    pub output_dir: Option<String>,
 }
 
 impl Config {
@@ -32,6 +34,32 @@ impl Config {
         let data = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
         fs::write(path, data).map_err(|e| format!("Failed to write config: {}", e))
+    }
+
+    /// Build a full output path using output_dir if set, with unix timestamp filename.
+    pub fn output_path(&self, ext: &str) -> String {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let filename = format!("bitart_{}.{}", timestamp, ext);
+        match &self.output_dir {
+            Some(dir) => {
+                let path = PathBuf::from(dir).join(&filename);
+                fs::create_dir_all(dir).ok();
+                path.to_string_lossy().to_string()
+            }
+            None => filename,
+        }
+    }
+
+    pub fn default_output_dir() -> String {
+        dirs::download_dir()
+            .or_else(dirs::home_dir)
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("bitart")
+            .to_string_lossy()
+            .to_string()
     }
 
     pub fn available_models() -> Vec<(&'static str, &'static str, &'static str)> {

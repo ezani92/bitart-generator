@@ -1,7 +1,7 @@
 {
   "name": "bitart-generator",
-  "version": "0.8.5",
-  "description": "Terminal pixel art generator — create 192x192 art from text prompts using AI image generation",
+  "version": "1.0.0",
+  "description": "Terminal pixel art generator — create art from text prompts using AI image generation",
   "bin": {
     "bitart": "bin/run.js"
   },

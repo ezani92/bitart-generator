@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::exporter;
-use crate::generator::{self, Canvas, FramesResult, GenerationResult, CANVAS_SIZE};
+use crate::generator::{self, Canvas, FramesResult, GenerationResult};
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     layout::{Constraint, Layout, Position},
@@ -76,16 +76,20 @@ enum Screen {
 
 struct SetupState {
     step: SetupStep,
+    menu_selection: usize,
     selected_model: usize,
     api_key_input: String,
+    output_dir_input: String,
     cursor_index: usize,
     error_message: Option<String>,
     is_reconfigure: bool,
 }
 
 enum SetupStep {
+    ConfigMenu,
     SelectModel,
     EnterApiKey,
+    SetOutputDir,
 }
 
 enum AppState {
@@ -122,8 +126,10 @@ impl App {
         } else {
             Screen::Setup(SetupState {
                 step: SetupStep::SelectModel,
+                menu_selection: 0,
                 selected_model: 0,
                 api_key_input: String::new(),
+                output_dir_input: Config::default_output_dir(),
                 cursor_index: 0,
                 error_message: None,
                 is_reconfigure: false,
@@ -225,19 +231,31 @@ impl App {
     }
 
     fn save(&mut self) {
+        let path = if let Some(ref config) = self.config {
+            match self.export_mode {
+                ExportMode::Png => config.output_path("png"),
+                ExportMode::Gif => config.output_path("gif"),
+            }
+        } else {
+            match self.export_mode {
+                ExportMode::Png => "output.png".to_string(),
+                ExportMode::Gif => "output.gif".to_string(),
+            }
+        };
+
         match self.export_mode {
             ExportMode::Png => {
                 if let Some(ref canvas) = self.canvas {
-                    match exporter::save_png(canvas, "output.png") {
-                        Ok(()) => self.status_message = "Saved to output.png!".into(),
+                    match exporter::save_png(canvas, &path) {
+                        Ok(()) => self.status_message = format!("Saved to {}!", path),
                         Err(e) => self.status_message = format!("Save failed: {}", e),
                     }
                 }
             }
             ExportMode::Gif => {
                 if let Some(ref frames) = self.frames {
-                    match exporter::save_gif(frames, "output.gif") {
-                        Ok(()) => self.status_message = "Saved to output.gif!".into(),
+                    match exporter::save_gif(frames, &path) {
+                        Ok(()) => self.status_message = format!("Saved to {}!", path),
                         Err(e) => self.status_message = format!("Save failed: {}", e),
                     }
                 }
@@ -247,17 +265,20 @@ impl App {
 
     fn open_config(&mut self) {
         let models = Config::available_models();
-        let (selected_model, api_key_input) = if let Some(ref config) = self.config {
+        let (selected_model, api_key_input, output_dir_input) = if let Some(ref config) = self.config {
             let idx = models.iter().position(|(id, _, _)| *id == config.model).unwrap_or(0);
-            (idx, config.api_key.clone())
+            let dir = config.output_dir.clone().unwrap_or_else(Config::default_output_dir);
+            (idx, config.api_key.clone(), dir)
         } else {
-            (0, String::new())
+            (0, String::new(), Config::default_output_dir())
         };
         let cursor_index = api_key_input.chars().count();
         self.screen = Screen::Setup(SetupState {
-            step: SetupStep::SelectModel,
+            step: SetupStep::ConfigMenu,
+            menu_selection: 0,
             selected_model,
             api_key_input,
+            output_dir_input,
             cursor_index,
             error_message: None,
             is_reconfigure: true,
@@ -267,9 +288,16 @@ impl App {
     fn ready_status(&self) -> String {
         let model = self.model_name.as_deref().unwrap_or("unknown");
         let ext = if self.export_mode == ExportMode::Gif { "GIF 3fps" } else { "PNG" };
+        let res = if let Some(ref c) = self.canvas {
+            let h = c.len();
+            let w = if h > 0 { c[0].len() } else { 0 };
+            format!("{}x{}", w, h)
+        } else {
+            "—".to_string()
+        };
         format!(
-            "\"{}\" | {}x{} {} | {} | Ctrl+[n]ew Ctrl+[s]ave Ctrl+[r]egenerate Ctrl+[c]onfig Ctrl+[q]uit",
-            self.prompt, CANVAS_SIZE, CANVAS_SIZE, ext, model
+            "\"{}\" | {} {} | {} | Ctrl+[n]ew Ctrl+[s]ave Ctrl+[r]egenerate Ctrl+[c]onfig Ctrl+[q]uit",
+            self.prompt, res, ext, model
         )
     }
 
@@ -480,6 +508,36 @@ fn run_app(mut terminal: DefaultTerminal) -> std::io::Result<()> {
 fn handle_setup_input(app: &mut App, key: KeyCode) {
     if let Screen::Setup(ref mut setup) = app.screen {
         match setup.step {
+            SetupStep::ConfigMenu => match key {
+                KeyCode::Up => {
+                    if setup.menu_selection > 0 {
+                        setup.menu_selection -= 1;
+                    }
+                }
+                KeyCode::Down => {
+                    if setup.menu_selection < 1 {
+                        setup.menu_selection += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    match setup.menu_selection {
+                        0 => {
+                            // Update Model & API Key
+                            setup.step = SetupStep::SelectModel;
+                        }
+                        1 => {
+                            // Update Save Folder
+                            setup.cursor_index = setup.output_dir_input.chars().count();
+                            setup.step = SetupStep::SetOutputDir;
+                        }
+                        _ => {}
+                    }
+                }
+                KeyCode::Esc => {
+                    app.screen = Screen::Main(AppState::Idle);
+                }
+                _ => {}
+            },
             SetupStep::SelectModel => match key {
                 KeyCode::Up => {
                     if setup.selected_model > 0 {
@@ -497,7 +555,7 @@ fn handle_setup_input(app: &mut App, key: KeyCode) {
                 }
                 KeyCode::Esc => {
                     if setup.is_reconfigure {
-                        app.screen = Screen::Main(AppState::Idle);
+                        setup.step = SetupStep::ConfigMenu;
                     } else {
                         app.should_quit = true;
                     }
@@ -524,11 +582,42 @@ fn handle_setup_input(app: &mut App, key: KeyCode) {
                         setup.error_message = Some("API key cannot be empty".into());
                         return;
                     }
+                    setup.error_message = None;
+                    setup.cursor_index = setup.output_dir_input.chars().count();
+                    setup.step = SetupStep::SetOutputDir;
+                }
+                KeyCode::Esc => {
+                    setup.step = SetupStep::SelectModel;
+                }
+                _ => {}
+            },
+            SetupStep::SetOutputDir => match key {
+                KeyCode::Char(c) => {
+                    let idx = App::byte_index(&setup.output_dir_input, setup.cursor_index);
+                    setup.output_dir_input.insert(idx, c);
+                    setup.cursor_index += 1;
+                }
+                KeyCode::Backspace => {
+                    if setup.cursor_index > 0 {
+                        let current = setup.cursor_index;
+                        let before: String = setup.output_dir_input.chars().take(current - 1).collect();
+                        let after: String = setup.output_dir_input.chars().skip(current).collect();
+                        setup.output_dir_input = format!("{}{}", before, after);
+                        setup.cursor_index -= 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    let output_dir = if setup.output_dir_input.trim().is_empty() {
+                        None
+                    } else {
+                        Some(setup.output_dir_input.clone())
+                    };
                     let models = Config::available_models();
                     let model = models[setup.selected_model].0.to_string();
                     let config = Config {
                         api_key: setup.api_key_input.clone(),
                         model,
+                        output_dir,
                     };
                     match config.save() {
                         Ok(()) => {
@@ -541,7 +630,12 @@ fn handle_setup_input(app: &mut App, key: KeyCode) {
                     }
                 }
                 KeyCode::Esc => {
-                    setup.step = SetupStep::SelectModel;
+                    if setup.is_reconfigure {
+                        setup.step = SetupStep::ConfigMenu;
+                    } else {
+                        setup.step = SetupStep::EnterApiKey;
+                        setup.cursor_index = setup.api_key_input.chars().count();
+                    }
                 }
                 _ => {}
             },
@@ -572,6 +666,40 @@ fn draw_setup(frame: &mut Frame, setup: &SetupState) {
     frame.render_widget(title, chunks[0]);
 
     match setup.step {
+        SetupStep::ConfigMenu => {
+            let menu_items = [
+                "Update Model & API Key",
+                "Update Save Folder",
+            ];
+            let mut lines: Vec<Line> = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  Settings:",
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+            ];
+
+            for (i, item) in menu_items.iter().enumerate() {
+                let marker = if i == setup.menu_selection { " > " } else { "   " };
+                let style = if i == setup.menu_selection {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("{}{}. {}", marker, i + 1, item),
+                    style,
+                )));
+            }
+
+            let content = Paragraph::new(lines);
+            frame.render_widget(content, chunks[1]);
+
+            let help = Paragraph::new(" Up/Down: select | Enter: confirm | Esc: back")
+                .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(help, chunks[2]);
+        }
         SetupStep::SelectModel => {
             let models = Config::available_models();
             let mut lines: Vec<Line> = vec![
@@ -649,6 +777,40 @@ fn draw_setup(frame: &mut Frame, setup: &SetupState) {
             lines.push(Line::from(vec![
                 Span::styled("  > ", Style::default().fg(Color::Yellow)),
                 Span::styled(masked, Style::default().fg(Color::White)),
+            ]));
+
+            if let Some(ref err) = setup.error_message {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    format!("  {}", err),
+                    Style::default().fg(Color::Red),
+                )));
+            }
+
+            let content = Paragraph::new(lines);
+            frame.render_widget(content, chunks[1]);
+
+            let help = Paragraph::new(" Enter: confirm | Esc: back")
+                .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(help, chunks[2]);
+        }
+        SetupStep::SetOutputDir => {
+            let mut lines: Vec<Line> = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  Set default output folder:",
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(Span::styled(
+                    "  Exported PNG/GIF files will be saved here. Leave empty to save in current directory.",
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(""),
+            ];
+
+            lines.push(Line::from(vec![
+                Span::styled("  > ", Style::default().fg(Color::Yellow)),
+                Span::styled(&setup.output_dir_input, Style::default().fg(Color::White)),
             ]));
 
             if let Some(ref err) = setup.error_message {
@@ -780,21 +942,27 @@ fn draw_main(frame: &mut Frame, app: &App) {
     frame.render_widget(status, chunks[3]);
 }
 
-/// Render the canvas scaled to fit the available terminal area.
+/// Render the canvas using half-block characters for 2x resolution.
+/// Each terminal cell shows 2 vertical pixels using ▀ with fg (top) and bg (bottom).
 fn render_canvas(frame: &mut Frame, area: ratatui::layout::Rect, canvas: &Canvas) {
-    let canvas_size = CANVAS_SIZE as f64;
-    let available_w = area.width as usize / 2;
-    let available_h = area.height as usize;
+    let canvas_h = canvas.len();
+    let canvas_w = if canvas_h > 0 { canvas[0].len() } else { 0 };
+    if canvas_w == 0 || canvas_h == 0 {
+        return;
+    }
 
-    let scale_x = available_w as f64 / canvas_size;
-    let scale_y = available_h as f64 / canvas_size;
+    let available_w = area.width as usize;       // 1 char per pixel now
+    let available_h = area.height as usize * 2;  // 2 pixels per row
+
+    let scale_x = available_w as f64 / canvas_w as f64;
+    let scale_y = available_h as f64 / canvas_h as f64;
     let scale = scale_x.min(scale_y).min(1.0);
 
-    let render_w = (canvas_size * scale) as usize;
-    let render_h = (canvas_size * scale) as usize;
+    let render_w = (canvas_w as f64 * scale) as usize;
+    let render_h = (canvas_h as f64 * scale) as usize;
 
-    let offset_x = (area.width as usize - render_w * 2) / 2;
-    let offset_y = (area.height as usize - render_h) / 2;
+    let offset_x = (area.width as usize - render_w) / 2;
+    let offset_y = (area.height as usize - (render_h + 1) / 2) / 2;
 
     let mut lines: Vec<Line> = Vec::new();
 
@@ -802,9 +970,9 @@ fn render_canvas(frame: &mut Frame, area: ratatui::layout::Rect, canvas: &Canvas
         lines.push(Line::from(""));
     }
 
-    for row in 0..render_h {
-        let max_idx = CANVAS_SIZE as usize - 1;
-        let src_y = ((row as f64 / scale) as usize).min(max_idx);
+    // Process 2 pixel rows per terminal row
+    let mut py = 0;
+    while py < render_h {
         let mut spans: Vec<Span> = Vec::new();
 
         if offset_x > 0 {
@@ -812,14 +980,31 @@ fn render_canvas(frame: &mut Frame, area: ratatui::layout::Rect, canvas: &Canvas
         }
 
         for col in 0..render_w {
-            let src_x = ((col as f64 / scale) as usize).min(max_idx);
-            let [r, g, b] = canvas[src_y][src_x];
-            spans.push(Span::styled(
-                "██",
-                Style::default().fg(Color::Rgb(r, g, b)),
-            ));
+            let src_x = ((col as f64 / scale) as usize).min(canvas_w - 1);
+
+            // Top pixel
+            let src_y_top = ((py as f64 / scale) as usize).min(canvas_h - 1);
+            let [tr, tg, tb] = canvas[src_y_top][src_x];
+
+            // Bottom pixel (may be out of range)
+            if py + 1 < render_h {
+                let src_y_bot = (((py + 1) as f64 / scale) as usize).min(canvas_h - 1);
+                let [br, bg, bb] = canvas[src_y_bot][src_x];
+                spans.push(Span::styled(
+                    "▀",
+                    Style::default()
+                        .fg(Color::Rgb(tr, tg, tb))
+                        .bg(Color::Rgb(br, bg, bb)),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    "▀",
+                    Style::default().fg(Color::Rgb(tr, tg, tb)),
+                ));
+            }
         }
         lines.push(Line::from(spans));
+        py += 2;
     }
 
     let canvas_widget = Paragraph::new(lines);

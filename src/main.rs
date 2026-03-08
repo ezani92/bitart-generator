@@ -77,8 +77,8 @@ fn cli_generate(prompt: &str, output: Option<&str>, gif_mode: bool) -> std::io::
     };
 
     if gif_mode {
-        let default_path = "output.gif";
-        let output_path = output.unwrap_or(default_path);
+        let default_path = config.output_path("gif");
+        let output_path = output.unwrap_or(&default_path);
 
         eprintln!("Generating 3 frames for \"{}\"...", prompt);
 
@@ -108,8 +108,8 @@ fn cli_generate(prompt: &str, output: Option<&str>, gif_mode: bool) -> std::io::
             }
         }
     } else {
-        let default_path = "output.png";
-        let output_path = output.unwrap_or(default_path);
+        let default_path = config.output_path("png");
+        let output_path = output.unwrap_or(&default_path);
 
         eprintln!("Generating pixel art for \"{}\"...", prompt);
 
