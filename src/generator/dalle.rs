@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use super::{Canvas, GenerationResult};
+use super::{Canvas, GenerationResult, CANVAS_SIZE};
 
 /// Download and decode an image from a URL.
 fn download_image(url: &str) -> Result<image::DynamicImage, String> {
@@ -29,15 +29,16 @@ fn decode_base64_image(b64: &str) -> Result<image::DynamicImage, String> {
         .map_err(|e| format!("Failed to decode image: {}", e))
 }
 
-/// Convert an image to a 64x64 Canvas.
+/// Convert an image to a Canvas at CANVAS_SIZE resolution.
 fn image_to_canvas(img: &image::DynamicImage) -> Canvas {
-    let resized = img.resize_exact(64, 64, image::imageops::FilterType::Nearest);
+    let size = CANVAS_SIZE;
+    let resized = img.resize_exact(size, size, image::imageops::FilterType::Nearest);
     let rgb = resized.to_rgb8();
 
-    let mut canvas: Canvas = Vec::with_capacity(64);
-    for y in 0..64 {
-        let mut row = Vec::with_capacity(64);
-        for x in 0..64 {
+    let mut canvas: Canvas = Vec::with_capacity(size as usize);
+    for y in 0..size {
+        let mut row = Vec::with_capacity(size as usize);
+        for x in 0..size {
             let pixel = rgb.get_pixel(x, y);
             row.push([pixel[0], pixel[1], pixel[2]]);
         }
@@ -135,8 +136,9 @@ pub fn generate(prompt: &str, api_key: &str, model: &str) -> Result<GenerationRe
 /// Find the bounding box of non-background pixels in a canvas.
 /// Returns (min_x, min_y, max_x, max_y) or None if empty.
 fn find_bounds(canvas: &Canvas, bg: [u8; 3], tolerance: u8) -> Option<(usize, usize, usize, usize)> {
-    let mut min_x = 64usize;
-    let mut min_y = 64usize;
+    let size = CANVAS_SIZE as usize;
+    let mut min_x = size;
+    let mut min_y = size;
     let mut max_x = 0usize;
     let mut max_y = 0usize;
     let mut found = false;
@@ -176,12 +178,14 @@ fn align_canvas(canvas: &Canvas, bg: [u8; 3], target_cx: i32, target_cy: i32, to
         return canvas.clone();
     }
 
-    let mut result = vec![vec![bg; 64]; 64];
-    for y in 0..64i32 {
-        for x in 0..64i32 {
+    let size = CANVAS_SIZE as usize;
+    let isize = CANVAS_SIZE as i32;
+    let mut result = vec![vec![bg; size]; size];
+    for y in 0..isize {
+        for x in 0..isize {
             let src_x = x - dx;
             let src_y = y - dy;
-            if src_x >= 0 && src_x < 64 && src_y >= 0 && src_y < 64 {
+            if src_x >= 0 && src_x < isize && src_y >= 0 && src_y < isize {
                 result[y as usize][x as usize] = canvas[src_y as usize][src_x as usize];
             }
         }

@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::exporter;
-use crate::generator::{self, Canvas, FramesResult, GenerationResult};
+use crate::generator::{self, Canvas, FramesResult, GenerationResult, CANVAS_SIZE};
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     layout::{Constraint, Layout, Position},
@@ -268,8 +268,8 @@ impl App {
         let model = self.model_name.as_deref().unwrap_or("unknown");
         let ext = if self.export_mode == ExportMode::Gif { "GIF 3fps" } else { "PNG" };
         format!(
-            "\"{}\" | 64x64 {} | {} | Ctrl+[n]ew Ctrl+[s]ave Ctrl+[r]egenerate Ctrl+[c]onfig Ctrl+[q]uit",
-            self.prompt, ext, model
+            "\"{}\" | {}x{} {} | {} | Ctrl+[n]ew Ctrl+[s]ave Ctrl+[r]egenerate Ctrl+[c]onfig Ctrl+[q]uit",
+            self.prompt, CANVAS_SIZE, CANVAS_SIZE, ext, model
         )
     }
 
@@ -780,17 +780,18 @@ fn draw_main(frame: &mut Frame, app: &App) {
     frame.render_widget(status, chunks[3]);
 }
 
-/// Render the 64x64 canvas scaled to fit the available terminal area.
+/// Render the canvas scaled to fit the available terminal area.
 fn render_canvas(frame: &mut Frame, area: ratatui::layout::Rect, canvas: &Canvas) {
+    let canvas_size = CANVAS_SIZE as f64;
     let available_w = area.width as usize / 2;
     let available_h = area.height as usize;
 
-    let scale_x = available_w as f64 / 64.0;
-    let scale_y = available_h as f64 / 64.0;
+    let scale_x = available_w as f64 / canvas_size;
+    let scale_y = available_h as f64 / canvas_size;
     let scale = scale_x.min(scale_y).min(1.0);
 
-    let render_w = (64.0 * scale) as usize;
-    let render_h = (64.0 * scale) as usize;
+    let render_w = (canvas_size * scale) as usize;
+    let render_h = (canvas_size * scale) as usize;
 
     let offset_x = (area.width as usize - render_w * 2) / 2;
     let offset_y = (area.height as usize - render_h) / 2;
@@ -802,7 +803,8 @@ fn render_canvas(frame: &mut Frame, area: ratatui::layout::Rect, canvas: &Canvas
     }
 
     for row in 0..render_h {
-        let src_y = ((row as f64 / scale) as usize).min(63);
+        let max_idx = CANVAS_SIZE as usize - 1;
+        let src_y = ((row as f64 / scale) as usize).min(max_idx);
         let mut spans: Vec<Span> = Vec::new();
 
         if offset_x > 0 {
@@ -810,7 +812,7 @@ fn render_canvas(frame: &mut Frame, area: ratatui::layout::Rect, canvas: &Canvas
         }
 
         for col in 0..render_w {
-            let src_x = ((col as f64 / scale) as usize).min(63);
+            let src_x = ((col as f64 / scale) as usize).min(max_idx);
             let [r, g, b] = canvas[src_y][src_x];
             spans.push(Span::styled(
                 "██",

@@ -1,11 +1,11 @@
-use crate::generator::Canvas;
+use crate::generator::{Canvas, CANVAS_SIZE};
 use image::{codecs::gif::GifEncoder, Frame, RgbaImage};
 use std::fs::File;
 
 const WHITE_THRESHOLD: u8 = 240;
 
 fn canvas_to_rgba(canvas: &Canvas, scale: u32) -> RgbaImage {
-    let size = 64 * scale;
+    let size = CANVAS_SIZE * scale;
     let mut img = RgbaImage::new(size, size);
 
     for (y, row) in canvas.iter().enumerate() {
@@ -29,10 +29,10 @@ fn canvas_to_rgba(canvas: &Canvas, scale: u32) -> RgbaImage {
     img
 }
 
-/// Save the 64x64 canvas as a 512x512 PNG (8x scale).
+/// Save the canvas as a scaled PNG (4x scale → 768x768).
 /// Near-white pixels are exported as transparent.
 pub fn save_png(canvas: &Canvas, path: &str) -> Result<(), String> {
-    let img = canvas_to_rgba(canvas, 8);
+    let img = canvas_to_rgba(canvas, 4);
     img.save(path).map_err(|e| format!("Failed to save PNG: {}", e))
 }
 
@@ -45,7 +45,7 @@ pub fn save_gif(frames: &[Canvas], path: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to set repeat: {}", e))?;
 
     for canvas in frames {
-        let rgba = canvas_to_rgba(canvas, 8);
+        let rgba = canvas_to_rgba(canvas, 4);
         let frame = Frame::from_parts(
             rgba,
             0,

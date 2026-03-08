@@ -3,7 +3,10 @@ pub mod dalle;
 use std::sync::mpsc;
 use std::thread;
 
-/// A 64x64 grid of RGB colors.
+/// Canvas resolution (192x192).
+pub const CANVAS_SIZE: u32 = 192;
+
+/// A grid of RGB colors.
 pub type Canvas = Vec<Vec<[u8; 3]>>;
 
 /// Result of a generation attempt.
