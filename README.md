@@ -89,12 +89,12 @@ bitart -h
 | Key | Action |
 |-----|--------|
 | `Shift+Tab` | Toggle PNG/GIF mode |
-| `Enter` | Generate art from prompt |
-| `n` | New prompt |
-| `s` | Save to `output.png` or `output.gif` |
-| `r` | Regenerate same prompt |
-| `c` | Open config (change model/API key) |
-| `q` | Quit |
+| `Enter` | Generate art from prompt / New prompt |
+| `Ctrl+N` | New prompt |
+| `Ctrl+S` | Save to `output.png` or `output.gif` |
+| `Ctrl+R` | Regenerate same prompt |
+| `Ctrl+C` | Open config (change model/API key) |
+| `Ctrl+Q` | Quit |
 | `Esc` | Quit |
 
 ## How It Works

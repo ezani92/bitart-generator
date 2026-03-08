@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::exporter;
 use crate::generator::{self, Canvas, FramesResult, GenerationResult};
 use ratatui::{
-    crossterm::event::{self, Event, KeyCode, KeyEventKind},
+    crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     layout::{Constraint, Layout, Position},
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -116,7 +116,7 @@ impl App {
             canvas: None,
             frames: None,
             model_name: None,
-            status_message: String::from("Type a prompt and press Enter to generate | [c]onfig [q]uit"),
+            status_message: String::from("Type a prompt and press Enter to generate | Ctrl+[c]onfig Ctrl+[q]uit"),
             prompt: String::new(),
             receiver: None,
             frames_receiver: None,
@@ -247,7 +247,7 @@ impl App {
         let model = self.model_name.as_deref().unwrap_or("unknown");
         let ext = if self.export_mode == ExportMode::Gif { "GIF 3fps" } else { "PNG" };
         format!(
-            "\"{}\" | 64x64 {} | {} | [n]ew [s]ave [r]egenerate [c]onfig [q]uit",
+            "\"{}\" | 64x64 {} | {} | Ctrl+[n]ew Ctrl+[s]ave Ctrl+[r]egenerate Ctrl+[c]onfig Ctrl+[q]uit",
             self.prompt, ext, model
         )
     }
@@ -361,7 +361,7 @@ fn run_app(mut terminal: DefaultTerminal) -> std::io::Result<()> {
                             app.status_message = app.ready_status();
                         } else {
                             app.status_message = format!(
-                                "Mode: {} | Type a prompt and press Enter to generate | [c]onfig [q]uit",
+                                "Mode: {} | Type a prompt and press Enter to generate | Ctrl+[c]onfig Ctrl+[q]uit",
                                 app.export_mode.label()
                             );
                         }
@@ -369,54 +369,74 @@ fn run_app(mut terminal: DefaultTerminal) -> std::io::Result<()> {
                     continue;
                 }
 
+                let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+
                 match &app.screen {
                     Screen::Setup(_) => handle_setup_input(&mut app, key.code),
                     Screen::Main(state) => match state {
-                        AppState::Idle => match key.code {
-                            KeyCode::Char('c') if app.input.is_empty() => {
-                                app.open_config();
-                            }
-                            KeyCode::Char('q') if app.input.is_empty() => {
-                                app.should_quit = true;
-                            }
-                            KeyCode::Enter => {
-                                app.start_generation();
-                            }
-                            KeyCode::Backspace => {
-                                if app.character_index > 0 {
-                                    let current = app.character_index;
-                                    let before: String = app.input.chars().take(current - 1).collect();
-                                    let after: String = app.input.chars().skip(current).collect();
-                                    app.input = format!("{}{}", before, after);
-                                    app.character_index -= 1;
+                        AppState::Idle => {
+                            if ctrl {
+                                match key.code {
+                                    KeyCode::Char('c') => app.open_config(),
+                                    KeyCode::Char('q') => app.should_quit = true,
+                                    _ => {}
+                                }
+                            } else {
+                                match key.code {
+                                    KeyCode::Enter => {
+                                        app.start_generation();
+                                    }
+                                    KeyCode::Backspace => {
+                                        if app.character_index > 0 {
+                                            let current = app.character_index;
+                                            let before: String = app.input.chars().take(current - 1).collect();
+                                            let after: String = app.input.chars().skip(current).collect();
+                                            app.input = format!("{}{}", before, after);
+                                            app.character_index -= 1;
+                                        }
+                                    }
+                                    KeyCode::Char(c) => {
+                                        let idx = App::byte_index(&app.input, app.character_index);
+                                        app.input.insert(idx, c);
+                                        app.character_index += 1;
+                                    }
+                                    KeyCode::Esc => {
+                                        app.should_quit = true;
+                                    }
+                                    _ => {}
                                 }
                             }
-                            KeyCode::Char(c) => {
-                                let idx = App::byte_index(&app.input, app.character_index);
-                                app.input.insert(idx, c);
-                                app.character_index += 1;
-                            }
-                            KeyCode::Esc => {
-                                app.should_quit = true;
-                            }
-                            _ => {}
                         },
-                        AppState::Ready => match key.code {
-                            KeyCode::Char('q') => app.should_quit = true,
-                            KeyCode::Char('c') => app.open_config(),
-                            KeyCode::Char('s') => app.save(),
-                            KeyCode::Char('r') => app.regenerate(),
-                            KeyCode::Char('n') | KeyCode::Enter => {
-                                app.screen = Screen::Main(AppState::Idle);
-                                app.input.clear();
-                                app.character_index = 0;
-                                app.status_message = "Type a prompt and press Enter to generate | [c]onfig [q]uit".into();
+                        AppState::Ready => {
+                            if ctrl {
+                                match key.code {
+                                    KeyCode::Char('q') => app.should_quit = true,
+                                    KeyCode::Char('c') => app.open_config(),
+                                    KeyCode::Char('s') => app.save(),
+                                    KeyCode::Char('r') => app.regenerate(),
+                                    KeyCode::Char('n') => {
+                                        app.screen = Screen::Main(AppState::Idle);
+                                        app.input.clear();
+                                        app.character_index = 0;
+                                        app.status_message = "Type a prompt and press Enter to generate | Ctrl+[c]onfig Ctrl+[q]uit".into();
+                                    }
+                                    _ => {}
+                                }
+                            } else {
+                                match key.code {
+                                    KeyCode::Enter => {
+                                        app.screen = Screen::Main(AppState::Idle);
+                                        app.input.clear();
+                                        app.character_index = 0;
+                                        app.status_message = "Type a prompt and press Enter to generate | Ctrl+[c]onfig Ctrl+[q]uit".into();
+                                    }
+                                    KeyCode::Esc => app.should_quit = true,
+                                    _ => {}
+                                }
                             }
-                            KeyCode::Esc => app.should_quit = true,
-                            _ => {}
                         },
                         AppState::Generating => {
-                            if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
+                            if (ctrl && key.code == KeyCode::Char('q')) || key.code == KeyCode::Esc {
                                 app.should_quit = true;
                             }
                         }
