@@ -1,6 +1,6 @@
 [package]
 name = "bitart-generator"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "Terminal pixel art generator — create art from text prompts using AI image generation"
 license = "MIT"

@@ -1,6 +1,6 @@
 {
   "name": "bitart-generator",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Terminal pixel art generator — create art from text prompts using AI image generation",
   "bin": {
     "bitart": "bin/run.js"
