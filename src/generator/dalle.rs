@@ -132,7 +132,64 @@ pub fn generate(prompt: &str, api_key: &str, model: &str) -> Result<GenerationRe
     })
 }
 
-/// Generate a sprite sheet with 3 animation frames in one image, then split into 3 canvases.
+/// Find the bounding box of non-background pixels in a canvas.
+/// Returns (min_x, min_y, max_x, max_y) or None if empty.
+fn find_bounds(canvas: &Canvas, bg: [u8; 3], tolerance: u8) -> Option<(usize, usize, usize, usize)> {
+    let mut min_x = 64usize;
+    let mut min_y = 64usize;
+    let mut max_x = 0usize;
+    let mut max_y = 0usize;
+    let mut found = false;
+
+    for (y, row) in canvas.iter().enumerate() {
+        for (x, pixel) in row.iter().enumerate() {
+            let dr = (pixel[0] as i16 - bg[0] as i16).unsigned_abs() as u8;
+            let dg = (pixel[1] as i16 - bg[1] as i16).unsigned_abs() as u8;
+            let db = (pixel[2] as i16 - bg[2] as i16).unsigned_abs() as u8;
+            if dr > tolerance || dg > tolerance || db > tolerance {
+                found = true;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+
+    if found { Some((min_x, min_y, max_x, max_y)) } else { None }
+}
+
+/// Shift a canvas so its subject center aligns with the target center.
+fn align_canvas(canvas: &Canvas, bg: [u8; 3], target_cx: i32, target_cy: i32, tolerance: u8) -> Canvas {
+    let bounds = match find_bounds(canvas, bg, tolerance) {
+        Some(b) => b,
+        None => return canvas.clone(),
+    };
+
+    let cx = (bounds.0 as i32 + bounds.2 as i32) / 2;
+    let cy = (bounds.1 as i32 + bounds.3 as i32) / 2;
+
+    let dx = target_cx - cx;
+    let dy = target_cy - cy;
+
+    if dx == 0 && dy == 0 {
+        return canvas.clone();
+    }
+
+    let mut result = vec![vec![bg; 64]; 64];
+    for y in 0..64i32 {
+        for x in 0..64i32 {
+            let src_x = x - dx;
+            let src_y = y - dy;
+            if src_x >= 0 && src_x < 64 && src_y >= 0 && src_y < 64 {
+                result[y as usize][x as usize] = canvas[src_y as usize][src_x as usize];
+            }
+        }
+    }
+    result
+}
+
+/// Generate a sprite sheet with 3 animation frames, split, and auto-align.
 pub fn generate_spritesheet(prompt: &str, api_key: &str, model: &str) -> Result<Vec<Canvas>, String> {
     let full_prompt = format!(
         "A horizontal pixel art sprite sheet with exactly 3 animation frames placed side by side, separated by thin vertical lines. \
@@ -153,12 +210,24 @@ pub fn generate_spritesheet(prompt: &str, api_key: &str, model: &str) -> Result<
     let height = img.height();
     let frame_width = width / 3;
 
-    let mut frames = Vec::with_capacity(3);
+    let mut frames: Vec<Canvas> = Vec::with_capacity(3);
     for i in 0..3 {
         let x = i * frame_width;
         let cropped = img.crop_imm(x, 0, frame_width, height);
         let canvas = image_to_canvas(&cropped);
         frames.push(canvas);
+    }
+
+    // Auto-align: use frame 1 as reference, align frames 2 & 3 to match
+    let bg = frames[0][0][0]; // top-left pixel as background
+    let tolerance = 30u8;
+
+    if let Some(ref_bounds) = find_bounds(&frames[0], bg, tolerance) {
+        let target_cx = (ref_bounds.0 as i32 + ref_bounds.2 as i32) / 2;
+        let target_cy = (ref_bounds.1 as i32 + ref_bounds.3 as i32) / 2;
+
+        frames[1] = align_canvas(&frames[1], bg, target_cx, target_cy, tolerance);
+        frames[2] = align_canvas(&frames[2], bg, target_cx, target_cy, tolerance);
     }
 
     Ok(frames)
