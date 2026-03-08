@@ -11,6 +11,8 @@ use ratatui::{
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 const TITLE_ART: &str = r#"
  ____  ___ _____  _    ____ _____
 | __ )|_ _|_   _|/ \  |  _ \_   _|
@@ -255,8 +257,9 @@ fn draw(frame: &mut Frame, app: &App) {
     ])
     .split(area);
 
-    // Title
-    let title = Paragraph::new(TITLE_ART)
+    // Title with version
+    let title_with_version = format!("{}                          v{}\n", TITLE_ART.trim_end(), VERSION);
+    let title = Paragraph::new(title_with_version)
         .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
         .alignment(ratatui::layout::Alignment::Center);
     frame.render_widget(title, chunks[0]);
