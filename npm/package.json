@@ -1,7 +1,7 @@
 {
   "name": "bitart-generator",
-  "version": "0.1.0",
-  "description": "Terminal pixel art generator — create 64x64 art from text prompts using AI or math patterns",
+  "version": "0.4.0",
+  "description": "Terminal pixel art generator — create 64x64 art from text prompts using DALL-E image generation",
   "bin": {
     "bitart": "bin/run.js"
   },

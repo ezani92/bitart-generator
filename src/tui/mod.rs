@@ -33,6 +33,7 @@ struct SetupState {
     api_key_input: String,
     cursor_index: usize,
     error_message: Option<String>,
+    is_reconfigure: bool,
 }
 
 enum SetupStep {
@@ -73,6 +74,7 @@ impl App {
                 api_key_input: String::new(),
                 cursor_index: 0,
                 error_message: None,
+                is_reconfigure: false,
             })
         };
 
@@ -83,7 +85,7 @@ impl App {
             character_index: 0,
             canvas: None,
             model_name: None,
-            status_message: String::from("Type a prompt and press Enter to generate pixel art"),
+            status_message: String::from("Type a prompt and press Enter to generate | [c]onfig [q]uit"),
             prompt: String::new(),
             receiver: None,
             generation_start: None,
@@ -144,6 +146,25 @@ impl App {
         }
     }
 
+    fn open_config(&mut self) {
+        let models = Config::available_models();
+        let (selected_model, api_key_input) = if let Some(ref config) = self.config {
+            let idx = models.iter().position(|(id, _, _)| *id == config.model).unwrap_or(0);
+            (idx, config.api_key.clone())
+        } else {
+            (0, String::new())
+        };
+        let cursor_index = api_key_input.chars().count();
+        self.screen = Screen::Setup(SetupState {
+            step: SetupStep::SelectModel,
+            selected_model,
+            api_key_input,
+            cursor_index,
+            error_message: None,
+            is_reconfigure: true,
+        });
+    }
+
     fn check_generation(&mut self) {
         if let Some(ref rx) = self.receiver {
             match rx.try_recv() {
@@ -156,7 +177,7 @@ impl App {
                             self.screen = Screen::Main(AppState::Ready);
                             self.generation_start = None;
                             self.status_message = format!(
-                                "Prompt: \"{}\" | 64x64 | Model: {} | [s]ave [r]egenerate [q]uit",
+                                "Prompt: \"{}\" | 64x64 | Model: {} | [s]ave [r]egenerate [c]onfig [q]uit",
                                 self.prompt, model
                             );
                         }
@@ -204,6 +225,9 @@ fn run_app(mut terminal: DefaultTerminal) -> std::io::Result<()> {
                     Screen::Setup(_) => handle_setup_input(&mut app, key.code),
                     Screen::Main(state) => match state {
                         AppState::Idle => match key.code {
+                            KeyCode::Char('c') if app.input.is_empty() => {
+                                app.open_config();
+                            }
                             KeyCode::Char('q') if app.input.is_empty() => {
                                 app.should_quit = true;
                             }
@@ -231,13 +255,14 @@ fn run_app(mut terminal: DefaultTerminal) -> std::io::Result<()> {
                         },
                         AppState::Ready => match key.code {
                             KeyCode::Char('q') => app.should_quit = true,
+                            KeyCode::Char('c') => app.open_config(),
                             KeyCode::Char('s') => app.save(),
                             KeyCode::Char('r') => app.regenerate(),
                             KeyCode::Enter => {
                                 app.screen = Screen::Main(AppState::Idle);
                                 app.input.clear();
                                 app.character_index = 0;
-                                app.status_message = "Type a new prompt and press Enter".into();
+                                app.status_message = "Type a prompt and press Enter to generate | [c]onfig [q]uit".into();
                             }
                             KeyCode::Esc => app.should_quit = true,
                             _ => {}
@@ -282,7 +307,11 @@ fn handle_setup_input(app: &mut App, key: KeyCode) {
                     setup.step = SetupStep::EnterApiKey;
                 }
                 KeyCode::Esc => {
-                    app.should_quit = true;
+                    if setup.is_reconfigure {
+                        app.screen = Screen::Main(AppState::Idle);
+                    } else {
+                        app.should_quit = true;
+                    }
                 }
                 _ => {}
             },
@@ -390,7 +419,12 @@ fn draw_setup(frame: &mut Frame, setup: &SetupState) {
             let content = Paragraph::new(lines);
             frame.render_widget(content, chunks[1]);
 
-            let help = Paragraph::new(" Up/Down: select | Enter: confirm | Esc: quit")
+            let help_text = if setup.is_reconfigure {
+                " Up/Down: select | Enter: confirm | Esc: cancel"
+            } else {
+                " Up/Down: select | Enter: confirm | Esc: quit"
+            };
+            let help = Paragraph::new(help_text)
                 .style(Style::default().fg(Color::DarkGray));
             frame.render_widget(help, chunks[2]);
         }
