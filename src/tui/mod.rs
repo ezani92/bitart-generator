@@ -250,15 +250,15 @@ fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
     let chunks = Layout::vertical([
-        Constraint::Length(7),  // Title
+        Constraint::Length(8),  // Title + version
         Constraint::Min(10),   // Canvas
         Constraint::Length(3), // Input
         Constraint::Length(1), // Status
     ])
     .split(area);
 
-    // Title with version
-    let title_with_version = format!("{}                          v{}\n", TITLE_ART.trim_end(), VERSION);
+    // Title with version below
+    let title_with_version = format!("{}\n                          v{}", TITLE_ART.trim_end(), VERSION);
     let title = Paragraph::new(title_with_version)
         .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
         .alignment(ratatui::layout::Alignment::Center);
