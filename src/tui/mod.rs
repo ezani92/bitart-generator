@@ -188,7 +188,6 @@ impl App {
                         self.prompt.clone(),
                         config.api_key.clone(),
                         config.model.clone(),
-                        3,
                     ));
                 }
             }
@@ -219,7 +218,6 @@ impl App {
                         self.prompt.clone(),
                         config.api_key.clone(),
                         config.model.clone(),
-                        3,
                     ));
                 }
             }

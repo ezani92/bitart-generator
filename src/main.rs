@@ -86,7 +86,6 @@ fn cli_generate(prompt: &str, output: Option<&str>, gif_mode: bool) -> std::io::
             prompt.to_string(),
             config.api_key.clone(),
             config.model.clone(),
-            3,
         );
 
         match rx.recv() {

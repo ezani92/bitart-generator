@@ -32,43 +32,25 @@ pub fn generate_async(
     rx
 }
 
-/// Spawn multi-frame generation (for GIF), returning a receiver for progress and final result.
+/// Spawn sprite sheet generation (for GIF) — one API call, 3 frames.
 pub fn generate_frames_async(
     prompt: String,
     api_key: String,
     model: String,
-    frame_count: usize,
 ) -> mpsc::Receiver<Result<FramesResult, String>> {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
-        let mut frames = Vec::with_capacity(frame_count);
-        let frame_descriptions = [
-            "frame 1 of 3 of a looping animation, starting pose",
-            "frame 2 of 3 of a looping animation, mid-motion pose with slight movement",
-            "frame 3 of 3 of a looping animation, peak motion pose before returning to start",
-        ];
-        for i in 0..frame_count {
-            let desc = if i < frame_descriptions.len() {
-                frame_descriptions[i]
-            } else {
-                "animation frame"
-            };
-            let frame_prompt = format!(
-                "{}, {}, same character same colors same background same composition same style",
-                prompt, desc
-            );
-            match dalle::generate(&frame_prompt, &api_key, &model) {
-                Ok(result) => frames.push(result.canvas),
-                Err(e) => {
-                    let _ = tx.send(Err(format!("Frame {} failed: {}", i + 1, e)));
-                    return;
-                }
+        match dalle::generate_spritesheet(&prompt, &api_key, &model) {
+            Ok(frames) => {
+                let _ = tx.send(Ok(FramesResult {
+                    frames,
+                    model: model.to_string(),
+                }));
+            }
+            Err(e) => {
+                let _ = tx.send(Err(e));
             }
         }
-        let _ = tx.send(Ok(FramesResult {
-            frames,
-            model: model.to_string(),
-        }));
     });
     rx
 }
