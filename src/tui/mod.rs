@@ -122,7 +122,7 @@ impl App {
     fn check_generation(&mut self) {
         // Check for timeout (60 seconds)
         if let Some(start) = self.generation_start {
-            if start.elapsed() > Duration::from_secs(60) {
+            if start.elapsed() > Duration::from_secs(120) {
                 self.receiver = None;
                 self.generation_start = None;
                 self.status_message = "Generation timed out, using fallback...".into();
