@@ -14,13 +14,13 @@ use std::time::{Duration, Instant};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const TITLE_ART: &str = r#"
- ____  ___ _____  _    ____ _____
-| __ )|_ _|_   _|/ \  |  _ \_   _|
-|  _ \ | |  | | / _ \ | |_) || |
-| |_) || |  | |/ ___ \|  _ < | |
-|____/|___| |_/_/   \_\_| \_\|_|
-"#;
+const TITLE_ART: &str = "
+ BBB   III  TTTTT   A   RRRR  TTTTT
+ B  B   I     T    A A  R   R   T
+ BBB    I     T   AAAAA RRRR    T
+ B  B   I     T   A   A R  R    T
+ BBB   III    T   A   A R   R   T
+";
 
 enum Screen {
     Setup(SetupState),
@@ -177,7 +177,7 @@ impl App {
                             self.screen = Screen::Main(AppState::Ready);
                             self.generation_start = None;
                             self.status_message = format!(
-                                "Prompt: \"{}\" | 64x64 | Model: {} | [s]ave [r]egenerate [c]onfig [q]uit",
+                                "\"{}\" | 64x64 | {} | [n]ew [s]ave [r]egenerate [c]onfig [q]uit",
                                 self.prompt, model
                             );
                         }
@@ -258,7 +258,7 @@ fn run_app(mut terminal: DefaultTerminal) -> std::io::Result<()> {
                             KeyCode::Char('c') => app.open_config(),
                             KeyCode::Char('s') => app.save(),
                             KeyCode::Char('r') => app.regenerate(),
-                            KeyCode::Enter => {
+                            KeyCode::Char('n') | KeyCode::Enter => {
                                 app.screen = Screen::Main(AppState::Idle);
                                 app.input.clear();
                                 app.character_index = 0;
@@ -377,7 +377,7 @@ fn draw_setup(frame: &mut Frame, setup: &SetupState) {
     .split(area);
 
     // Title
-    let title_with_version = format!("{}\n                          v{}", TITLE_ART.trim_end(), VERSION);
+    let title_with_version = format!("{}\n v{}", TITLE_ART.trim_end(), VERSION);
     let title = Paragraph::new(title_with_version)
         .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
         .alignment(ratatui::layout::Alignment::Center);
@@ -493,7 +493,7 @@ fn draw_main(frame: &mut Frame, app: &App) {
     .split(area);
 
     // Title with version below
-    let title_with_version = format!("{}\n                          v{}", TITLE_ART.trim_end(), VERSION);
+    let title_with_version = format!("{}\n v{}", TITLE_ART.trim_end(), VERSION);
     let title = Paragraph::new(title_with_version)
         .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
         .alignment(ratatui::layout::Alignment::Center);
