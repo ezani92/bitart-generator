@@ -37,7 +37,8 @@ impl Config {
     pub fn available_models() -> Vec<(&'static str, &'static str, &'static str)> {
         vec![
             ("dall-e-2", "DALL-E 2", "$0.02/image (cheapest)"),
-            ("dall-e-3", "DALL-E 3", "$0.04/image (better quality)"),
+            ("dall-e-3", "DALL-E 3", "$0.04/image"),
+            ("gpt-image-1", "GPT Image 1", "$0.04/image (best quality)"),
         ]
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "bitart-generator"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 description = "Terminal pixel art generator — create 64x64 art from text prompts using AI image generation"
 license = "MIT"
@@ -22,3 +22,4 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 ureq = { version = "2", features = ["json"] }
 dirs = "5"
+base64 = "0.22"
