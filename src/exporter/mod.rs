@@ -37,6 +37,36 @@ pub fn save_png(canvas: &Canvas, path: &str) -> Result<(), String> {
     img.save(path).map_err(|e| format!("Failed to save PNG: {}", e))
 }
 
+/// Save multiple named canvases as individual PNGs in a subfolder.
+pub fn save_chain_pngs(
+    tiles: &[(String, &Canvas)],
+    base_dir: &str,
+) -> Result<Vec<String>, String> {
+    std::fs::create_dir_all(base_dir)
+        .map_err(|e| format!("Failed to create directory: {}", e))?;
+
+    let mut paths = Vec::new();
+    for (name, canvas) in tiles {
+        // Sanitize name for filename
+        let safe_name: String = name
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' })
+            .collect();
+        let filename = format!("{}.png", safe_name);
+        let path = std::path::Path::new(base_dir)
+            .join(&filename)
+            .to_string_lossy()
+            .to_string();
+
+        let img = canvas_to_rgba(canvas, 1);
+        img.save(&path)
+            .map_err(|e| format!("Failed to save {}: {}", filename, e))?;
+        paths.push(path);
+    }
+
+    Ok(paths)
+}
+
 /// Save multiple canvases as an animated GIF at 3fps (333ms per frame).
 pub fn save_gif(frames: &[Canvas], path: &str) -> Result<(), String> {
     let file = File::create(path).map_err(|e| format!("Failed to create file: {}", e))?;
