@@ -1,3 +1,4 @@
+mod config;
 mod generator;
 mod tui;
 mod exporter;

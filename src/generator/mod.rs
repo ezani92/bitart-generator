@@ -1,6 +1,4 @@
-pub mod claude;
-pub mod fallback;
-pub mod palette;
+pub mod dalle;
 
 use std::sync::mpsc;
 use std::thread;
@@ -11,48 +9,18 @@ pub type Canvas = Vec<Vec<[u8; 3]>>;
 /// Result of a generation attempt.
 pub struct GenerationResult {
     pub canvas: Canvas,
-    pub mode: GenerationMode,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum GenerationMode {
-    Ai,
-    Fallback,
-}
-
-impl std::fmt::Display for GenerationMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GenerationMode::Ai => write!(f, "AI"),
-            GenerationMode::Fallback => write!(f, "Fallback"),
-        }
-    }
-}
-
-/// Generate pixel art from a prompt. Tries Claude first, falls back to math.
-pub fn generate(prompt: &str, seed: u64) -> GenerationResult {
-    match claude::generate(prompt) {
-        Ok(canvas) => GenerationResult {
-            canvas,
-            mode: GenerationMode::Ai,
-        },
-        Err(_) => GenerationResult {
-            canvas: fallback::generate_with_seed(prompt, seed),
-            mode: GenerationMode::Fallback,
-        },
-    }
-}
-
-/// Generate using only the math fallback (used when Claude times out).
-pub fn generate_fallback(prompt: &str, seed: u64) -> Canvas {
-    fallback::generate_with_seed(prompt, seed)
+    pub model: String,
 }
 
 /// Spawn generation in a background thread, returning a receiver for the result.
-pub fn generate_async(prompt: String, seed: u64) -> mpsc::Receiver<GenerationResult> {
+pub fn generate_async(
+    prompt: String,
+    api_key: String,
+    model: String,
+) -> mpsc::Receiver<Result<GenerationResult, String>> {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
-        let result = generate(&prompt, seed);
+        let result = dalle::generate(&prompt, &api_key, &model);
         let _ = tx.send(result);
     });
     rx
