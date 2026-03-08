@@ -135,10 +135,13 @@ pub fn generate(prompt: &str, api_key: &str, model: &str) -> Result<GenerationRe
 /// Generate a sprite sheet with 3 animation frames in one image, then split into 3 canvases.
 pub fn generate_spritesheet(prompt: &str, api_key: &str, model: &str) -> Result<Vec<Canvas>, String> {
     let full_prompt = format!(
-        "A horizontal sprite sheet showing exactly 3 animation frames side by side of the same character. \
-         Pixel art, 8-bit retro style, clear shapes with black outlines, vibrant colors, game sprite style. \
-         The 3 frames show a smooth looping animation sequence of: {}. \
-         Each frame is separated by a thin vertical line. Same character, same colors, same size in all 3 frames. \
+        "A horizontal pixel art sprite sheet with exactly 3 animation frames placed side by side, separated by thin vertical lines. \
+         8-bit retro style, clear shapes with black outlines, vibrant colors. \
+         Subject: {}. \
+         IMPORTANT: The main body/structure must stay in the EXACT same position and shape across all 3 frames. \
+         Only animate small subtle details (e.g. leaves swaying, eyes blinking, tail wagging, flames flickering, water rippling). \
+         The background, position, size, colors, and overall composition must be IDENTICAL in all 3 frames. \
+         The difference between frames should be very small and subtle, like a 2-3 pixel shift on moving parts only. \
          White background.",
         prompt
     );
