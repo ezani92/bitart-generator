@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::exporter;
-use crate::generator::{self, Canvas, GenerationResult};
+use crate::generator::{self, Canvas, FramesResult, GenerationResult};
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
     layout::{Constraint, Layout, Position},
@@ -15,12 +15,36 @@ use std::time::{Duration, Instant};
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const TITLE_ART: &str = "
- BBB   III  TTTTT   A   RRRR  TTTTT
- B  B   I     T    A A  R   R   T
- BBB    I     T   AAAAA RRRR    T
- B  B   I     T   A   A R  R    T
- BBB   III    T   A   A R   R   T
+░██        ░██   ░██                           ░██
+░██              ░██                           ░██
+░████████  ░██░████████  ░██████   ░██░████ ░████████
+░██    ░██ ░██   ░██          ░██  ░███        ░██
+░██    ░██ ░██   ░██     ░███████  ░██         ░██
+░███   ░██ ░██   ░██    ░██   ░██  ░██         ░██
+░██░█████  ░██    ░████  ░█████░██ ░██          ░████
 ";
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum ExportMode {
+    Png,
+    Gif,
+}
+
+impl ExportMode {
+    fn label(&self) -> &str {
+        match self {
+            ExportMode::Png => "PNG",
+            ExportMode::Gif => "GIF",
+        }
+    }
+
+    fn toggle(&self) -> Self {
+        match self {
+            ExportMode::Png => ExportMode::Gif,
+            ExportMode::Gif => ExportMode::Png,
+        }
+    }
+}
 
 enum Screen {
     Setup(SetupState),
@@ -52,13 +76,18 @@ pub struct App {
     config: Option<Config>,
     input: String,
     character_index: usize,
+    export_mode: ExportMode,
     canvas: Option<Canvas>,
+    frames: Option<Vec<Canvas>>,
     model_name: Option<String>,
     status_message: String,
     prompt: String,
     receiver: Option<mpsc::Receiver<Result<GenerationResult, String>>>,
+    frames_receiver: Option<mpsc::Receiver<Result<FramesResult, String>>>,
     generation_start: Option<Instant>,
     spinner_frame: usize,
+    gif_frame_index: usize,
+    gif_last_tick: Option<Instant>,
     should_quit: bool,
 }
 
@@ -83,13 +112,18 @@ impl App {
             config,
             input: String::new(),
             character_index: 0,
+            export_mode: ExportMode::Png,
             canvas: None,
+            frames: None,
             model_name: None,
             status_message: String::from("Type a prompt and press Enter to generate | [c]onfig [q]uit"),
             prompt: String::new(),
             receiver: None,
+            frames_receiver: None,
             generation_start: None,
             spinner_frame: 0,
+            gif_frame_index: 0,
+            gif_last_tick: None,
             should_quit: false,
         }
     }
@@ -102,6 +136,10 @@ impl App {
             .unwrap_or(input.len())
     }
 
+    fn mode_indicator(&self) -> String {
+        format!("[Shift+Tab: {}]", self.export_mode.label())
+    }
+
     fn start_generation(&mut self) {
         if self.input.trim().is_empty() {
             return;
@@ -111,12 +149,26 @@ impl App {
             self.screen = Screen::Main(AppState::Generating);
             self.spinner_frame = 0;
             self.generation_start = Some(Instant::now());
-            self.status_message = format!("Generating: {}...", self.prompt);
-            self.receiver = Some(generator::generate_async(
-                self.prompt.clone(),
-                config.api_key.clone(),
-                config.model.clone(),
-            ));
+
+            match self.export_mode {
+                ExportMode::Png => {
+                    self.status_message = format!("Generating: {}...", self.prompt);
+                    self.receiver = Some(generator::generate_async(
+                        self.prompt.clone(),
+                        config.api_key.clone(),
+                        config.model.clone(),
+                    ));
+                }
+                ExportMode::Gif => {
+                    self.status_message = format!("Generating 3 frames: {}...", self.prompt);
+                    self.frames_receiver = Some(generator::generate_frames_async(
+                        self.prompt.clone(),
+                        config.api_key.clone(),
+                        config.model.clone(),
+                        3,
+                    ));
+                }
+            }
         }
     }
 
@@ -128,20 +180,46 @@ impl App {
             self.screen = Screen::Main(AppState::Generating);
             self.spinner_frame = 0;
             self.generation_start = Some(Instant::now());
-            self.status_message = format!("Regenerating: {}...", self.prompt);
-            self.receiver = Some(generator::generate_async(
-                self.prompt.clone(),
-                config.api_key.clone(),
-                config.model.clone(),
-            ));
+
+            match self.export_mode {
+                ExportMode::Png => {
+                    self.status_message = format!("Regenerating: {}...", self.prompt);
+                    self.receiver = Some(generator::generate_async(
+                        self.prompt.clone(),
+                        config.api_key.clone(),
+                        config.model.clone(),
+                    ));
+                }
+                ExportMode::Gif => {
+                    self.status_message = format!("Regenerating 3 frames: {}...", self.prompt);
+                    self.frames_receiver = Some(generator::generate_frames_async(
+                        self.prompt.clone(),
+                        config.api_key.clone(),
+                        config.model.clone(),
+                        3,
+                    ));
+                }
+            }
         }
     }
 
     fn save(&mut self) {
-        if let Some(ref canvas) = self.canvas {
-            match exporter::save_png(canvas, "output.png") {
-                Ok(()) => self.status_message = "Saved to output.png!".into(),
-                Err(e) => self.status_message = format!("Save failed: {}", e),
+        match self.export_mode {
+            ExportMode::Png => {
+                if let Some(ref canvas) = self.canvas {
+                    match exporter::save_png(canvas, "output.png") {
+                        Ok(()) => self.status_message = "Saved to output.png!".into(),
+                        Err(e) => self.status_message = format!("Save failed: {}", e),
+                    }
+                }
+            }
+            ExportMode::Gif => {
+                if let Some(ref frames) = self.frames {
+                    match exporter::save_gif(frames, "output.gif") {
+                        Ok(()) => self.status_message = "Saved to output.gif!".into(),
+                        Err(e) => self.status_message = format!("Save failed: {}", e),
+                    }
+                }
             }
         }
     }
@@ -165,21 +243,28 @@ impl App {
         });
     }
 
+    fn ready_status(&self) -> String {
+        let model = self.model_name.as_deref().unwrap_or("unknown");
+        let ext = if self.export_mode == ExportMode::Gif { "GIF 3fps" } else { "PNG" };
+        format!(
+            "\"{}\" | 64x64 {} | {} | [n]ew [s]ave [r]egenerate [c]onfig [q]uit",
+            self.prompt, ext, model
+        )
+    }
+
     fn check_generation(&mut self) {
+        // Check single-frame (PNG mode)
         if let Some(ref rx) = self.receiver {
             match rx.try_recv() {
                 Ok(result) => {
                     match result {
                         Ok(gen_result) => {
-                            let model = gen_result.model.clone();
+                            self.model_name = Some(gen_result.model.clone());
                             self.canvas = Some(gen_result.canvas);
-                            self.model_name = Some(model.clone());
+                            self.frames = None;
                             self.screen = Screen::Main(AppState::Ready);
                             self.generation_start = None;
-                            self.status_message = format!(
-                                "\"{}\" | 64x64 | {} | [n]ew [s]ave [r]egenerate [c]onfig [q]uit",
-                                self.prompt, model
-                            );
+                            self.status_message = self.ready_status();
                         }
                         Err(e) => {
                             self.screen = Screen::Main(AppState::Idle);
@@ -197,6 +282,53 @@ impl App {
                     self.generation_start = None;
                     self.status_message = "Generation failed unexpectedly".into();
                     self.receiver = None;
+                }
+            }
+        }
+
+        // Check multi-frame (GIF mode)
+        if let Some(ref rx) = self.frames_receiver {
+            match rx.try_recv() {
+                Ok(result) => {
+                    match result {
+                        Ok(frames_result) => {
+                            self.model_name = Some(frames_result.model.clone());
+                            self.canvas = Some(frames_result.frames[0].clone());
+                            self.frames = Some(frames_result.frames);
+                            self.gif_frame_index = 0;
+                            self.gif_last_tick = Some(Instant::now());
+                            self.screen = Screen::Main(AppState::Ready);
+                            self.generation_start = None;
+                            self.status_message = self.ready_status();
+                        }
+                        Err(e) => {
+                            self.screen = Screen::Main(AppState::Idle);
+                            self.generation_start = None;
+                            self.status_message = format!("Error: {}", e);
+                        }
+                    }
+                    self.frames_receiver = None;
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    self.spinner_frame += 1;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.screen = Screen::Main(AppState::Idle);
+                    self.generation_start = None;
+                    self.status_message = "Generation failed unexpectedly".into();
+                    self.frames_receiver = None;
+                }
+            }
+        }
+    }
+
+    fn tick_gif_animation(&mut self) {
+        if let Some(ref frames) = self.frames {
+            if let Some(last) = self.gif_last_tick {
+                if last.elapsed() >= Duration::from_millis(333) {
+                    self.gif_frame_index = (self.gif_frame_index + 1) % frames.len();
+                    self.canvas = Some(frames[self.gif_frame_index].clone());
+                    self.gif_last_tick = Some(Instant::now());
                 }
             }
         }
@@ -221,6 +353,22 @@ fn run_app(mut terminal: DefaultTerminal) -> std::io::Result<()> {
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
+                // Shift+Tab toggles mode in Idle and Ready states
+                if key.code == KeyCode::BackTab {
+                    if matches!(app.screen, Screen::Main(AppState::Idle) | Screen::Main(AppState::Ready)) {
+                        app.export_mode = app.export_mode.toggle();
+                        if matches!(app.screen, Screen::Main(AppState::Ready)) {
+                            app.status_message = app.ready_status();
+                        } else {
+                            app.status_message = format!(
+                                "Mode: {} | Type a prompt and press Enter to generate | [c]onfig [q]uit",
+                                app.export_mode.label()
+                            );
+                        }
+                    }
+                    continue;
+                }
+
                 match &app.screen {
                     Screen::Setup(_) => handle_setup_input(&mut app, key.code),
                     Screen::Main(state) => match state {
@@ -278,6 +426,7 @@ fn run_app(mut terminal: DefaultTerminal) -> std::io::Result<()> {
         }
 
         app.check_generation();
+        app.tick_gif_animation();
 
         if app.should_quit {
             break;
@@ -288,7 +437,6 @@ fn run_app(mut terminal: DefaultTerminal) -> std::io::Result<()> {
 }
 
 fn handle_setup_input(app: &mut App, key: KeyCode) {
-    // We need to take ownership temporarily
     if let Screen::Setup(ref mut setup) = app.screen {
         match setup.step {
             SetupStep::SelectModel => match key {
@@ -370,7 +518,7 @@ fn draw(frame: &mut Frame, app: &App) {
 fn draw_setup(frame: &mut Frame, setup: &SetupState) {
     let area = frame.area();
     let chunks = Layout::vertical([
-        Constraint::Length(8),  // Title
+        Constraint::Length(10), // Title
         Constraint::Min(10),   // Setup content
         Constraint::Length(2), // Help
     ])
@@ -484,15 +632,20 @@ fn draw_main(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
     let chunks = Layout::vertical([
-        Constraint::Length(8),  // Title + version
+        Constraint::Length(10), // Title + version
         Constraint::Min(10),   // Canvas
         Constraint::Length(3), // Input
         Constraint::Length(1), // Status
     ])
     .split(area);
 
-    // Title with version below
-    let title_with_version = format!("{}\n v{}", TITLE_ART.trim_end(), VERSION);
+    // Title with version and mode indicator
+    let title_with_version = format!(
+        "{}\n v{}  {}",
+        TITLE_ART.trim_end(),
+        VERSION,
+        app.mode_indicator()
+    );
     let title = Paragraph::new(title_with_version)
         .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
     frame.render_widget(title, chunks[0]);
@@ -509,7 +662,11 @@ fn draw_main(frame: &mut Frame, app: &App) {
         Screen::Main(AppState::Generating) => {
             let spinners = ['|', '/', '-', '\\'];
             let spinner = spinners[app.spinner_frame % spinners.len()];
-            let text = format!("{} Generating pixel art...", spinner);
+            let text = if app.export_mode == ExportMode::Gif {
+                format!("{} Generating 3 frames for GIF...", spinner)
+            } else {
+                format!("{} Generating pixel art...", spinner)
+            };
             let p = Paragraph::new(text)
                 .style(Style::default().fg(Color::Yellow))
                 .alignment(ratatui::layout::Alignment::Center);

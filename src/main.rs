@@ -8,6 +8,7 @@ fn main() -> std::io::Result<()> {
 
     let mut prompt = None;
     let mut output = None;
+    let mut gif_mode = false;
     let mut i = 1;
 
     while i < args.len() {
@@ -24,6 +25,9 @@ fn main() -> std::io::Result<()> {
                     output = Some(args[i].clone());
                 }
             }
+            "-g" | "--gif" => {
+                gif_mode = true;
+            }
             "-h" | "--help" => {
                 println!("BitArt Generator - Terminal pixel art from text prompts");
                 println!();
@@ -31,14 +35,20 @@ fn main() -> std::io::Result<()> {
                 println!();
                 println!("Options:");
                 println!("  -p, --prompt <TEXT>   Generate art from prompt (skip TUI)");
-                println!("  -o, --output <PATH>   Output PNG path (default: output.png)");
+                println!("  -o, --output <PATH>   Output path (default: output.png or output.gif)");
+                println!("  -g, --gif             Generate animated GIF (3 frames at 3fps)");
                 println!("  -h, --help            Show this help");
                 println!("  -v, --version         Show version");
                 println!();
                 println!("Examples:");
-                println!("  bitart                        Launch interactive TUI");
-                println!("  bitart -p \"oak tree\"           Generate and save to output.png");
-                println!("  bitart -p \"sunset\" -o art.png  Generate and save to art.png");
+                println!("  bitart                              Launch interactive TUI");
+                println!("  bitart -p \"oak tree\"                 Generate PNG");
+                println!("  bitart -p \"sunset\" -o art.png        Generate with custom path");
+                println!("  bitart -p \"dancing cat\" -g           Generate animated GIF");
+                println!("  bitart -p \"fire\" -g -o fire.gif      GIF with custom path");
+                println!();
+                println!("TUI shortcuts:");
+                println!("  Shift+Tab    Toggle PNG/GIF mode");
                 return Ok(());
             }
             "-v" | "--version" => {
@@ -51,13 +61,13 @@ fn main() -> std::io::Result<()> {
     }
 
     if let Some(prompt) = prompt {
-        return cli_generate(&prompt, output.as_deref());
+        return cli_generate(&prompt, output.as_deref(), gif_mode);
     }
 
     tui::run()
 }
 
-fn cli_generate(prompt: &str, output: Option<&str>) -> std::io::Result<()> {
+fn cli_generate(prompt: &str, output: Option<&str>, gif_mode: bool) -> std::io::Result<()> {
     let config = match config::Config::load() {
         Some(c) => c,
         None => {
@@ -66,38 +76,68 @@ fn cli_generate(prompt: &str, output: Option<&str>) -> std::io::Result<()> {
         }
     };
 
-    let output_path = match output {
-        Some(p) => p.to_string(),
-        None => "output.png".to_string(),
-    };
+    if gif_mode {
+        let default_path = "output.gif";
+        let output_path = output.unwrap_or(default_path);
 
-    eprintln!("Generating pixel art for \"{}\"...", prompt);
+        eprintln!("Generating 3 frames for \"{}\"...", prompt);
 
-    let rx = generator::generate_async(
-        prompt.to_string(),
-        config.api_key.clone(),
-        config.model.clone(),
-    );
+        let rx = generator::generate_frames_async(
+            prompt.to_string(),
+            config.api_key.clone(),
+            config.model.clone(),
+            3,
+        );
 
-    match rx.recv() {
-        Ok(Ok(result)) => {
-            match exporter::save_png(&result.canvas, &output_path) {
-                Ok(()) => {
-                    eprintln!("Saved to {}", output_path);
-                }
-                Err(e) => {
-                    eprintln!("Error saving: {}", e);
-                    std::process::exit(1);
+        match rx.recv() {
+            Ok(Ok(result)) => {
+                match exporter::save_gif(&result.frames, output_path) {
+                    Ok(()) => eprintln!("Saved to {}", output_path),
+                    Err(e) => {
+                        eprintln!("Error saving: {}", e);
+                        std::process::exit(1);
+                    }
                 }
             }
+            Ok(Err(e)) => {
+                eprintln!("Generation failed: {}", e);
+                std::process::exit(1);
+            }
+            Err(_) => {
+                eprintln!("Generation failed unexpectedly");
+                std::process::exit(1);
+            }
         }
-        Ok(Err(e)) => {
-            eprintln!("Generation failed: {}", e);
-            std::process::exit(1);
-        }
-        Err(_) => {
-            eprintln!("Generation failed unexpectedly");
-            std::process::exit(1);
+    } else {
+        let default_path = "output.png";
+        let output_path = output.unwrap_or(default_path);
+
+        eprintln!("Generating pixel art for \"{}\"...", prompt);
+
+        let rx = generator::generate_async(
+            prompt.to_string(),
+            config.api_key.clone(),
+            config.model.clone(),
+        );
+
+        match rx.recv() {
+            Ok(Ok(result)) => {
+                match exporter::save_png(&result.canvas, output_path) {
+                    Ok(()) => eprintln!("Saved to {}", output_path),
+                    Err(e) => {
+                        eprintln!("Error saving: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                eprintln!("Generation failed: {}", e);
+                std::process::exit(1);
+            }
+            Err(_) => {
+                eprintln!("Generation failed unexpectedly");
+                std::process::exit(1);
+            }
         }
     }
 

@@ -1,6 +1,6 @@
 # BitArt Generator
 
-A terminal-based pixel art generator built in Rust. Generate 64x64 pixel art from text prompts using DALL-E image generation. View art directly in your terminal and export to PNG.
+A terminal-based pixel art generator built in Rust. Generate 64x64 pixel art from text prompts using DALL-E image generation. View art directly in your terminal and export to PNG or animated GIF.
 
 ![Rust](https://img.shields.io/badge/Rust-1.70%2B-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -9,11 +9,12 @@ A terminal-based pixel art generator built in Rust. Generate 64x64 pixel art fro
 
 - **AI Generation** — Uses OpenAI DALL-E API to generate pixel art from text prompts
 - **Model Selection** — Choose between DALL-E 2 ($0.02/image) or DALL-E 3 ($0.04/image)
+- **PNG & GIF Export** — Save as 512x512 PNG or animated GIF (3 frames at 3fps)
+- **Mode Toggle** — Switch between PNG and GIF mode with `Shift+Tab`
 - **Setup Wizard** — First-launch setup for model selection and API key entry
 - **Config Management** — Change model or API key anytime with `c` keybind
 - **Terminal Preview** — Full-color pixel art rendered with Unicode block characters
-- **PNG Export** — Save art as 512x512 PNG (8x upscaled from 64x64)
-- **CLI Mode** — Generate art directly from command line with `-p` and `-o` flags
+- **CLI Mode** — Generate art directly from command line with `-p`, `-o`, and `-g` flags
 - **Interactive TUI** — Built with Ratatui for a smooth terminal experience
 
 ## Installation
@@ -60,18 +61,24 @@ Your config is saved to `~/.bitart/config.json` and persists across sessions.
 bitart
 ```
 
-This opens the TUI. Type a prompt and press Enter to generate pixel art.
+This opens the TUI. Type a prompt and press Enter to generate pixel art. Use `Shift+Tab` to toggle between PNG and GIF mode. In GIF mode, 3 frames are generated and animated in the preview.
 
 ### CLI Mode
 
 Generate art directly without the TUI:
 
 ```bash
-# Generate and save to output.png
+# Generate PNG
 bitart -p "oak tree"
 
 # Generate with custom output path
 bitart -p "sunset mountain" -o ~/Downloads/sunset.png
+
+# Generate animated GIF (3 frames at 3fps)
+bitart -p "dancing cat" -g
+
+# GIF with custom path
+bitart -p "campfire" -g -o fire.gif
 
 # Show help
 bitart -h
@@ -81,9 +88,10 @@ bitart -h
 
 | Key | Action |
 |-----|--------|
+| `Shift+Tab` | Toggle PNG/GIF mode |
 | `Enter` | Generate art from prompt |
 | `n` | New prompt |
-| `s` | Save to `output.png` |
+| `s` | Save to `output.png` or `output.gif` |
 | `r` | Regenerate same prompt |
 | `c` | Open config (change model/API key) |
 | `q` | Quit |
@@ -93,22 +101,22 @@ bitart -h
 
 1. **Enter a prompt** — e.g. "neon city skyline", "sunset mountains", "pixel art cat"
 2. **Generation** — Sends prompt to DALL-E API, downloads the image, and downscales to 64x64 pixels
-3. **Preview** — Art is displayed in your terminal using colored `██` Unicode blocks
-4. **Export** — Press `s` to save as a 512x512 PNG to `./output.png`
+3. **Preview** — Art is displayed in your terminal using colored `██` Unicode blocks (GIF mode animates between frames)
+4. **Export** — Press `s` to save as a 512x512 PNG or animated GIF
 
 ## Project Structure
 
 ```
 src/
-├── main.rs              # Entry point
+├── main.rs              # Entry point + CLI mode
 ├── config.rs            # API key & model config (~/.bitart/config.json)
 ├── generator/
-│   ├── mod.rs           # Async generation orchestrator
+│   ├── mod.rs           # Async generation orchestrator (single + multi-frame)
 │   └── dalle.rs         # DALL-E API integration
 ├── tui/
 │   └── mod.rs           # Ratatui TUI (setup, input, canvas, status)
 └── exporter/
-    └── mod.rs           # PNG export (image crate)
+    └── mod.rs           # PNG & GIF export (image crate)
 ```
 
 ## License
