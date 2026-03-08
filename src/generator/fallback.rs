@@ -25,8 +25,8 @@ pub fn generate_with_seed(prompt: &str, seed: u64) -> Canvas {
     let freq2 = ((seed % 11) as f64 + 1.0) * 0.1;
     let phase = (seed % 100) as f64 * 0.1;
 
-    for y in 0..64 {
-        for x in 0..64 {
+    for y in 0usize..64 {
+        for x in 0usize..64 {
             let xf = x as f64;
             let yf = y as f64;
 
