@@ -43,6 +43,11 @@ pub fn generate(prompt: &str, seed: u64) -> GenerationResult {
     }
 }
 
+/// Generate using only the math fallback (used when Claude times out).
+pub fn generate_fallback(prompt: &str, seed: u64) -> Canvas {
+    fallback::generate_with_seed(prompt, seed)
+}
+
 /// Spawn generation in a background thread, returning a receiver for the result.
 pub fn generate_async(prompt: String, seed: u64) -> mpsc::Receiver<GenerationResult> {
     let (tx, rx) = mpsc::channel();

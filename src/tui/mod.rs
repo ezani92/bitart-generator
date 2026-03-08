@@ -9,7 +9,7 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const TITLE_ART: &str = r#"
  ____  ___ _____  _    ____ _____
@@ -35,6 +35,7 @@ pub struct App {
     seed: u64,
     prompt: String,
     receiver: Option<mpsc::Receiver<GenerationResult>>,
+    generation_start: Option<Instant>,
     spinner_frame: usize,
     should_quit: bool,
 }
@@ -51,6 +52,7 @@ impl App {
             seed: 0,
             prompt: String::new(),
             receiver: None,
+            generation_start: None,
             spinner_frame: 0,
             should_quit: false,
         }
@@ -91,6 +93,7 @@ impl App {
             .as_millis() as u64;
         self.state = AppState::Generating;
         self.spinner_frame = 0;
+        self.generation_start = Some(Instant::now());
         self.status_message = format!("Generating: {}...", self.prompt);
         self.receiver = Some(generator::generate_async(self.prompt.clone(), self.seed));
     }
@@ -102,6 +105,7 @@ impl App {
         self.seed = self.seed.wrapping_add(12345);
         self.state = AppState::Generating;
         self.spinner_frame = 0;
+        self.generation_start = Some(Instant::now());
         self.status_message = format!("Regenerating: {}...", self.prompt);
         self.receiver = Some(generator::generate_async(self.prompt.clone(), self.seed));
     }
@@ -116,6 +120,24 @@ impl App {
     }
 
     fn check_generation(&mut self) {
+        // Check for timeout (60 seconds)
+        if let Some(start) = self.generation_start {
+            if start.elapsed() > Duration::from_secs(60) {
+                self.receiver = None;
+                self.generation_start = None;
+                self.status_message = "Generation timed out, using fallback...".into();
+                let canvas = generator::generate_fallback(&self.prompt, self.seed);
+                self.canvas = Some(canvas);
+                self.mode = Some(GenerationMode::Fallback);
+                self.state = AppState::Ready;
+                self.status_message = format!(
+                    "Prompt: \"{}\" | 64x64 | Seed: {} | Mode: Fallback (timeout) | [s]ave [r]egenerate [q]uit",
+                    self.prompt, self.seed
+                );
+                return;
+            }
+        }
+
         if let Some(ref rx) = self.receiver {
             match rx.try_recv() {
                 Ok(result) => {
@@ -123,8 +145,9 @@ impl App {
                     self.canvas = Some(result.canvas);
                     self.mode = Some(mode);
                     self.state = AppState::Ready;
+                    self.generation_start = None;
                     self.status_message = format!(
-                        "Prompt: \"{}\" | Seed: {} | Mode: {} | [s]ave [r]egenerate [q]uit",
+                        "Prompt: \"{}\" | 64x64 | Seed: {} | Mode: {} | [s]ave [r]egenerate [q]uit",
                         self.prompt, self.seed, mode
                     );
                     self.receiver = None;
@@ -134,6 +157,7 @@ impl App {
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
                     self.state = AppState::Idle;
+                    self.generation_start = None;
                     self.status_message = "Generation failed unexpectedly".into();
                     self.receiver = None;
                 }
