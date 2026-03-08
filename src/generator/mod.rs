@@ -42,12 +42,21 @@ pub fn generate_frames_async(
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         let mut frames = Vec::with_capacity(frame_count);
+        let frame_descriptions = [
+            "frame 1 of 3 of a looping animation, starting pose",
+            "frame 2 of 3 of a looping animation, mid-motion pose with slight movement",
+            "frame 3 of 3 of a looping animation, peak motion pose before returning to start",
+        ];
         for i in 0..frame_count {
-            let frame_prompt = if i == 0 {
-                prompt.clone()
+            let desc = if i < frame_descriptions.len() {
+                frame_descriptions[i]
             } else {
-                format!("{} (variation {})", prompt, i + 1)
+                "animation frame"
             };
+            let frame_prompt = format!(
+                "{}, {}, same character same colors same background same composition same style",
+                prompt, desc
+            );
             match dalle::generate(&frame_prompt, &api_key, &model) {
                 Ok(result) => frames.push(result.canvas),
                 Err(e) => {
