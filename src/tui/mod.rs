@@ -379,8 +379,7 @@ fn draw_setup(frame: &mut Frame, setup: &SetupState) {
     // Title
     let title_with_version = format!("{}\n v{}", TITLE_ART.trim_end(), VERSION);
     let title = Paragraph::new(title_with_version)
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .alignment(ratatui::layout::Alignment::Center);
+        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
     frame.render_widget(title, chunks[0]);
 
     match setup.step {
@@ -495,8 +494,7 @@ fn draw_main(frame: &mut Frame, app: &App) {
     // Title with version below
     let title_with_version = format!("{}\n v{}", TITLE_ART.trim_end(), VERSION);
     let title = Paragraph::new(title_with_version)
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .alignment(ratatui::layout::Alignment::Center);
+        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
     frame.render_widget(title, chunks[0]);
 
     // Canvas area

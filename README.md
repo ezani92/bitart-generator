@@ -13,6 +13,7 @@ A terminal-based pixel art generator built in Rust. Generate 64x64 pixel art fro
 - **Config Management** — Change model or API key anytime with `c` keybind
 - **Terminal Preview** — Full-color pixel art rendered with Unicode block characters
 - **PNG Export** — Save art as 512x512 PNG (8x upscaled from 64x64)
+- **CLI Mode** — Generate art directly from command line with `-p` and `-o` flags
 - **Interactive TUI** — Built with Ratatui for a smooth terminal experience
 
 ## Installation
@@ -53,17 +54,35 @@ Your config is saved to `~/.bitart/config.json` and persists across sessions.
 
 ## Usage
 
+### Interactive TUI
+
 ```bash
 bitart
 ```
 
 This opens the TUI. Type a prompt and press Enter to generate pixel art.
 
-### Keybindings
+### CLI Mode
+
+Generate art directly without the TUI:
+
+```bash
+# Generate and save to output.png
+bitart -p "oak tree"
+
+# Generate with custom output path
+bitart -p "sunset mountain" -o ~/Downloads/sunset.png
+
+# Show help
+bitart -h
+```
+
+### Keybindings (TUI)
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Generate art from prompt / New prompt |
+| `Enter` | Generate art from prompt |
+| `n` | New prompt |
 | `s` | Save to `output.png` |
 | `r` | Regenerate same prompt |
 | `c` | Open config (change model/API key) |
